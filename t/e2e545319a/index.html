@@ -147,7 +147,7 @@
 <div id="gate">
   <div class="box">
     <h2>Locked</h2>
-    <p>Enter your passphrase.</p>
+    <p>Enter your passphrase. This device will remember it — you should only ever do this once per browser.</p>
     <div class="row">
       <input type="password" id="gPass" placeholder="passphrase" autocomplete="current-password" onkeydown="if(event.key==='Enter')tryUnlock()">
       <button class="primary" onclick="tryUnlock()">Unlock</button>
@@ -156,7 +156,7 @@
 
     <details class="mk">
       <summary>Set or change the passphrase</summary>
-      <p style="margin-top:10px">Type the passphrase you want, copy the hash below, and paste it into <code style="display:inline;padding:1px 4px">GATE_HASH</code> near the bottom of this file. The passphrase itself is never stored anywhere.</p>
+      <p style="margin-top:10px">Type the passphrase you want, copy the hash below, and paste it into <code style="display:inline;padding:1px 4px">GATE_HASH</code> in <code style="display:inline;padding:1px 4px">gate.js</code>. One line, one commit. The passphrase itself is never stored anywhere.</p>
       <div class="row">
         <input type="text" id="gNew" placeholder="new passphrase" autocomplete="off" oninput="mkHash()">
       </div>
@@ -332,22 +332,11 @@
 
 </div>
 
+<script src="gate.js"></script>
 <script>
 "use strict";
 
-/* ============================================================
-   PASSPHRASE GATE
-   Paste the SHA-256 hash of your passphrase below. Get it from
-   the "Set or change the passphrase" box on the lock screen.
-   Leave it as "" to disable the gate entirely.
-
-   This is a curtain, not a lock. The page is public and anyone
-   can read this source. It stops casual discovery and someone
-   opening the tab over your shoulder. Your actual log lives in
-   this browser's local storage and never touches the repo.
-   ============================================================ */
-const GATE_HASH = "1234";
-const GATE_SALT = "focustracker.v1:";
+/* GATE_HASH and GATE_SALT come from gate.js. Change the passphrase there. */
 const LS_UNLOCK = "ft.unlocked.v1";
 
 async function sha256(s){
@@ -645,7 +634,7 @@ function boot(){
 
 (function(){
   const th=lsGet(LS_THEME,""); if(th)document.documentElement.setAttribute("data-theme",th);
-  if(!GATE_HASH){ reveal(); return; }
+  if(typeof GATE_HASH==="undefined" || !GATE_HASH){ reveal(); return; }
   if(lsGet(LS_UNLOCK,"")===GATE_HASH){ reveal(); return; }
   document.getElementById("gPass").focus();
 })();
