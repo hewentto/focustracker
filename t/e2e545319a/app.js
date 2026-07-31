@@ -1,18 +1,24 @@
 "use strict";
 
-/* GATE_HASH and GATE_SALT come from gate.js. Change the passphrase there. */
-const LS_UNLOCK = "ft.unlocked.v1";
+/* GATE_HASH and GATE_SALT come from gate.js. */
+const LS_UNLOCK="ft.unlocked.v1";
 const LS_DATA="ft.data.v1", LS_PREF="ft.prefs.v1", LS_TOK="ft.tok.v1", LS_GIST="ft.gist.v1", LS_THEME="ft.theme.v1";
-const GIST_FILE="focus-tracker-data.json";   /* source of truth, used for merging */
-const CSV_FILE="focus-log.csv";              /* human-readable mirror */
-const KEYS=["wake","caff","block","walk","log"];
-const NAMES={wake:"Wake ±30m",caff:"Caffeine plan",block:"Both blocks",walk:"Walk",log:"Logged"};
+const GIST_FILE="focus-tracker-data.json";
+const CSV_FILE="focus-log.csv";
+
+/* Core Three first — a bad day that hits these three is a win. */
+const KEYS=["wake","light","train","caff","block","log"];
+const CORE3=["wake","light","train"];
+const NAMES={wake:"Wake ±30m",light:"Morning light",train:"Trained",caff:"Caffeine plan",block:"Both blocks",log:"Logged"};
+
+/* Weekly targets */
+const T_LIFT=3, T_RUN=2, T_DRY=4, T_DRINKS=6, T_SOCIAL=2;
 
 let DB={}, CUR=isoDay(new Date()), syncTimer=null;
 
 /* ---------- gate ---------- */
 async function sha256(s){
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  const buf=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 async function mkHash(){
@@ -20,8 +26,7 @@ async function mkHash(){
   document.getElementById("gHash").textContent = v ? await sha256(GATE_SALT+v) : "—";
 }
 async function tryUnlock(){
-  const v=document.getElementById("gPass").value;
-  const h=await sha256(GATE_SALT+v);
+  const h=await sha256(GATE_SALT+document.getElementById("gPass").value);
   if(h===GATE_HASH){ lsSet(LS_UNLOCK,h); reveal(); }
   else { document.getElementById("gErr").textContent="Not that one."; document.getElementById("gPass").select(); }
 }
@@ -44,7 +49,8 @@ function dayFromIso(s){const p=s.split("-");return new Date(+p[0],+p[1]-1,+p[2])
 function fmtDay(s){return dayFromIso(s).toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});}
 function mins(t){if(!t)return null;const p=t.split(":");return (+p[0])*60+(+p[1]);}
 function pretty(m){m=((m%1440)+1440)%1440;let h=Math.floor(m/60),x=m%60,ap=h<12?"am":"pm",hh=h%12===0?12:h%12;return hh+":"+String(x).padStart(2,"0")+ap;}
-function blank(){return {wake:false,caff:false,block:false,walk:false,log:false,wakeT:"",bedT:"",focus:"",note:"",_u:0};}
+function blank(){return {wake:false,light:false,train:false,caff:false,block:false,log:false,
+  wakeT:"",bedT:"",focus:"",trainType:"",drinks:"",social:false,protein:false,note:"",_u:0};}
 function rec(){if(!DB[CUR])DB[CUR]=blank();return DB[CUR];}
 function sleepMins(r){ if(!r||!r.wakeT||!r.bedT)return null; let x=mins(r.wakeT)-mins(r.bedT); if(x<0)x+=1440; return x; }
 
@@ -55,16 +61,14 @@ function lsDel(k){try{localStorage.removeItem(k);}catch(e){}}
 function persist(){
   lsSet(LS_DATA, JSON.stringify(DB));
   const p=document.getElementById("savePill");
-  p.textContent="saved "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  p.textContent="saved "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   p.className="pill ok";
 }
 function loadLocal(){ try{ DB=JSON.parse(lsGet(LS_DATA,"{}"))||{}; }catch(e){ DB={}; } }
 function savePrefs(){
   lsSet(LS_PREF, JSON.stringify({
-    dose:document.getElementById("cDose").value,
-    time:document.getElementById("cTime").value,
-    bed:document.getElementById("cBed").value,
-    half:document.getElementById("cHalf").value
+    dose:document.getElementById("cDose").value, time:document.getElementById("cTime").value,
+    bed:document.getElementById("cBed").value, half:document.getElementById("cHalf").value
   }));
 }
 function loadPrefs(){
@@ -93,6 +97,10 @@ function save(){
   t.wakeT=document.getElementById("fWake").value;
   t.bedT=document.getElementById("fBed").value;
   t.focus=document.getElementById("fFocus").value;
+  t.trainType=document.getElementById("fTrain").value;
+  t.drinks=document.getElementById("fDrinks").value;
+  t.social=document.getElementById("fSocial").checked;
+  t.protein=document.getElementById("fProtein").checked;
   t.note=document.getElementById("fNote").value;
   t._u=Date.now();
   persist(); render(); queueSync();
@@ -103,6 +111,10 @@ function loadDay(){
   document.getElementById("fWake").value=t.wakeT||"";
   document.getElementById("fBed").value=t.bedT||"";
   document.getElementById("fFocus").value=t.focus||"";
+  document.getElementById("fTrain").value=t.trainType||"";
+  document.getElementById("fDrinks").value=t.drinks||"";
+  document.getElementById("fSocial").checked=!!t.social;
+  document.getElementById("fProtein").checked=!!t.protein;
   document.getElementById("fNote").value=t.note||"";
   document.getElementById("todayLabel").textContent=fmtDay(CUR)+(CUR===isoDay(new Date())?" (today)":"");
 }
@@ -125,16 +137,12 @@ function calcCaff(){
   const okDose=Math.max(0,Math.round((elapsed/60-4.54)/0.0398));
   const v=document.getElementById("cVerdict"); v.className="verdict";
   let cls,t,d;
-  if(overBy<=0){
-    cls="v-good"; t="Inside the modelled window";
-    d="Clear of the interpolated Gardiner cutoff by "+Math.round(-overBy)+" min. This ignores guarana's unlabelled caffeine, so keep some margin.";
-  }else if(overBy<=60){
-    cls="v-warn"; t="Marginal — about "+Math.round(overBy)+" min late";
-    d="Right at the edge. Moving it "+Math.round(overBy)+" min earlier, or dropping to ~"+okDose+" mg, brings it inside. Lower dose is close to a free win: the reliable cognitive gains sit at the low end and in vigilance, not executive function.";
-  }else{
-    cls="v-crit"; t="About "+(overBy/60).toFixed(1)+"h too late";
-    d="At this dose you'd need it by "+pretty(latest)+", or cut to ~"+okDose+" mg. Drake et al. found 400 mg six hours before bed cost >1h of sleep objectively while the self-report effect was statistically absent — you would not feel this.";
-  }
+  if(overBy<=0){ cls="v-good"; t="Inside the modelled window";
+    d="Clear by "+Math.round(-overBy)+" min. Ignores guarana's unlabelled caffeine — keep margin."; }
+  else if(overBy<=60){ cls="v-warn"; t="Marginal — about "+Math.round(overBy)+" min late";
+    d="Move it "+Math.round(overBy)+" min earlier, or drop to ~"+okDose+" mg. Lower dose keeps nearly all the evidenced benefit."; }
+  else { cls="v-crit"; t="About "+(overBy/60).toFixed(1)+"h too late";
+    d="At this dose you'd need it by "+pretty(latest)+", or cut to ~"+okDose+" mg. Drake et al.: 400 mg six hours pre-bed cost >1h of sleep objectively, with no self-reported signal."; }
   v.classList.add(cls);
   document.getElementById("cvT").textContent=t;
   document.getElementById("cvD").textContent=d;
@@ -142,6 +150,13 @@ function calcCaff(){
 
 /* ---------- week ---------- */
 function weekDays(){const out=[],now=dayFromIso(CUR);for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);out.push(isoDay(d));}return out;}
+
+function tile(id,val,target,goodWhenLow){
+  const el=document.getElementById(id); if(!el)return;
+  el.textContent = target===null ? val : val+"/"+target;
+  const ok = goodWhenLow ? (val<=target) : (val>=target);
+  el.style.color = target===null ? "" : (ok ? "var(--good)" : "");
+}
 
 function render(){
   const days=weekDays(), todayIso=isoDay(new Date());
@@ -152,7 +167,8 @@ function render(){
 
   let html="";
   KEYS.forEach(k=>{
-    html+='<tr><td class="rowh">'+NAMES[k]+"</td>";
+    const core=CORE3.indexOf(k)>=0;
+    html+='<tr><td class="rowh">'+(core?'<span class="core-dot" title="Core Three"></span>':'')+NAMES[k]+"</td>";
     days.forEach((d,i)=>{
       const r=DB[d], done=r&&r[k];
       let flag=false;
@@ -161,16 +177,42 @@ function render(){
     });
     html+="</tr>";
   });
-  html+='<tr><td class="rowh">Sleep window</td>';
+  html+='<tr><td class="rowh">Session</td>';
   days.forEach(d=>{
-    const r=DB[d]; let inner='<span style="color:var(--text-muted)">—</span>';
-    const sm=sleepMins(r);
-    if(sm!==null){ inner='<span style="font-size:11.5px;color:var(--text-secondary)">'+(sm/60).toFixed(1)+"h<br>↑"+r.wakeT+"</span>"; }
+    const r=DB[d]; const tt=r&&r.trainType?r.trainType:"";
+    const lbl={lift:"Lift",run:"Run",snack:"Snack",other:"Other"}[tt]||"—";
+    html+='<td'+(d===CUR?' class="today"':'')+'><span style="font-size:11.5px;color:var(--text-secondary)">'+lbl+"</span></td>";
+  });
+  html+="</tr><tr><td class=\"rowh\">Sleep window</td>";
+  days.forEach(d=>{
+    const r=DB[d]; const sm=sleepMins(r);
+    let inner = sm===null ? '<span style="color:var(--text-muted)">—</span>'
+      : '<span style="font-size:11.5px;color:var(--text-secondary)">'+(sm/60).toFixed(1)+"h<br>↑"+r.wakeT+"</span>";
     html+='<td'+(d===CUR?' class="today"':'')+">"+inner+"</td>";
   });
   html+="</tr>";
   document.getElementById("wkBody").innerHTML=html;
 
+  /* --- weekly target tiles --- */
+  let lifts=0,runs=0,dry=0,drinks=0,social=0,core3=0,logged=0;
+  days.forEach(d=>{
+    const r=DB[d]; if(!r)return;
+    if(r.trainType==="lift")lifts++;
+    if(r.trainType==="run")runs++;
+    const dk=+r.drinks||0; drinks+=dk;
+    if(r.drinks!=="" && dk===0)dry++;
+    if(r.social)social++;
+    if(d<=todayIso){ logged++; if(CORE3.every(k=>r[k]))core3++; }
+  });
+  tile("tLift",lifts,T_LIFT,false);
+  tile("tRun",runs,T_RUN,false);
+  tile("tDry",dry,T_DRY,false);
+  tile("tDrinks",drinks,T_DRINKS,true);
+  tile("tSocial",social,T_SOCIAL,false);
+  tile("tCore",core3,null,false);
+  document.getElementById("tCore").textContent=core3+"/7";
+
+  /* --- sleep regularity --- */
   const wakes=days.map(d=>DB[d]&&DB[d].wakeT?mins(DB[d].wakeT):null).filter(v=>v!==null);
   let spread=null;
   if(wakes.length>=2){spread=Math.max(...wakes)-Math.min(...wakes);document.getElementById("sWakeSpread").textContent=spread+"m";}
@@ -188,10 +230,10 @@ function render(){
 
   const rv=document.getElementById("rVerdict"); rv.className="verdict";
   let c,t,dsc;
-  if(spread===null){c="v-warn";t="Not enough wake-time data yet";dsc="Log wake time on at least two days. Regularity is the variable worth watching, because your duration is already in range.";}
-  else if(spread<=30){c="v-good";t="Wake time is anchored ("+spread+" min spread)";dsc="This is the state the regularity literature associates with better outcomes. Hold it at weekends too — that's usually where the spread comes from.";}
-  else if(spread<=75){c="v-warn";t="Wake time drifting ("+spread+" min spread)";dsc="Aim to bring this under 30 min. Phillips et al. 2017 found irregular sleepers with identical total sleep time still had melatonin onset ~2.6h later. Duration isn't the variable here — phase is.";}
-  else {c="v-crit";t="Wake time is highly variable ("+spread+" min spread)";dsc="A "+spread+"-minute spread means your circadian phase is being re-set most days. With ~7.5h average sleep this is the most likely remaining physiological explanation for the daytime picture — and it's fixable without sleeping more.";}
+  if(spread===null){c="v-warn";t="Not enough wake-time data yet";dsc="Log wake time on at least two days. Regularity is the variable worth watching — your duration is already in range.";}
+  else if(spread<=30){c="v-good";t="Wake time is anchored ("+spread+" min spread)";dsc="This is the state the regularity literature associates with better outcomes — and it's the gate on whether the 6/7am gym session happens. Hold it at weekends too.";}
+  else if(spread<=75){c="v-warn";t="Wake time drifting ("+spread+" min spread)";dsc="Aim for under 30 min. Phillips et al. 2017: irregular sleepers with identical total sleep time still had melatonin onset ~2.6h later. Phase, not duration.";}
+  else {c="v-crit";t="Wake time is highly variable ("+spread+" min spread)";dsc="A "+spread+"-minute spread re-sets your circadian phase most days — and it's the reason the early sessions don't happen. Fixable without sleeping more.";}
   rv.classList.add(c);
   document.getElementById("rvT").textContent=t;
   document.getElementById("rvD").textContent=dsc;
@@ -200,14 +242,16 @@ function render(){
 /* ---------- CSV ---------- */
 function csvEsc(s){ s=String(s==null?"":s); return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
 function toCSV(){
-  const hdr=["date","wake_within_30m","caffeine_plan","both_blocks","walk","logged",
-             "wake_time","bed_time","sleep_hours","longest_block_min","note"];
+  const hdr=["date","wake_within_30m","morning_light","trained","caffeine_plan","both_blocks","logged",
+             "core3_all","training_type","wake_time","bed_time","sleep_hours","longest_block_min",
+             "drinks","social_contact","protein_target","note"];
   const rows=Object.keys(DB).sort().map(d=>{
-    const r=DB[d]||{};
-    const sm=sleepMins(r);
-    return [d, r.wake?1:0, r.caff?1:0, r.block?1:0, r.walk?1:0, r.log?1:0,
-            r.wakeT||"", r.bedT||"", sm===null?"":(sm/60).toFixed(2),
-            r.focus||"", r.note||""].map(csvEsc).join(",");
+    const r=DB[d]||{}; const sm=sleepMins(r);
+    return [d, r.wake?1:0, r.light?1:0, r.train?1:0, r.caff?1:0, r.block?1:0, r.log?1:0,
+            CORE3.every(k=>r[k])?1:0, r.trainType||"",
+            r.wakeT||"", r.bedT||"", sm===null?"":(sm/60).toFixed(2), r.focus||"",
+            r.drinks===""||r.drinks==null?"":(+r.drinks), r.social?1:0, r.protein?1:0,
+            r.note||""].map(csvEsc).join(",");
   });
   return hdr.join(",")+"\n"+rows.join("\n")+"\n";
 }
@@ -215,7 +259,7 @@ function downloadCSV(){
   const blob=new Blob([toCSV()],{type:"text/csv;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
-  a.href=url; a.download="focus-log-"+isoDay(new Date())+".csv";
+  a.href=url; a.download="best-jared-"+isoDay(new Date())+".csv";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url),1000);
   msg("CSV downloaded — "+Object.keys(DB).length+" day(s).");
@@ -238,34 +282,26 @@ async function gh(path,opts,tok){
   const r=await fetch("https://api.github.com"+path, Object.assign({
     headers:{ "Authorization":"Bearer "+tok, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" }
   },opts||{}));
-  if(!r.ok){
-    let detail=""; try{ detail=(await r.json()).message||""; }catch(e){}
-    throw new Error("GitHub "+r.status+(detail?" — "+detail:""));
-  }
+  if(!r.ok){ let detail=""; try{ detail=(await r.json()).message||""; }catch(e){}
+    throw new Error("GitHub "+r.status+(detail?" — "+detail:"")); }
   return r.json();
 }
-
 function gistPayload(){
-  return {
-    [GIST_FILE]:{content:JSON.stringify({v:1,data:DB},null,1)},
-    [CSV_FILE]:{content:toCSV()}
-  };
+  return { [GIST_FILE]:{content:JSON.stringify({v:2,data:DB},null,1)},
+           [CSV_FILE]:{content:toCSV()} };
 }
-
 function queueSync(){
-  const tok=lsGet(LS_TOK,""); const gid=lsGet(LS_GIST,"");
-  if(!tok||!gid)return;
+  if(!lsGet(LS_TOK,"")||!lsGet(LS_GIST,""))return;
   clearTimeout(syncTimer);
   syncTimer=setTimeout(()=>syncNow(true),4000);
 }
-
 async function syncNow(quiet){
   const tokIn=document.getElementById("ghTok").value.trim();
   const gidIn=document.getElementById("ghGist").value.trim();
   if(tokIn){ lsSet(LS_TOK,tokIn); document.getElementById("ghTok").value=""; }
   if(gidIn){ lsSet(LS_GIST,gidIn); }
   const tok=lsGet(LS_TOK,""); let gid=lsGet(LS_GIST,"");
-  if(!tok){ setPill("syncPill","not configured",""); msg("Paste a token first, or keep using local-only saving plus Download CSV."); return; }
+  if(!tok){ setPill("syncPill","not configured",""); msg("Paste a token first, or keep local-only saving plus Download CSV."); return; }
 
   setPill("syncPill","syncing…","busy"); if(!quiet)msg("");
   document.getElementById("btnSync").disabled=true;
@@ -280,27 +316,22 @@ async function syncNow(quiet){
       await gh("/gists/"+gid,{method:"PATCH",body:JSON.stringify({files:gistPayload()})},tok);
     }else{
       const g=await gh("/gists",{method:"POST",body:JSON.stringify({
-        description:"Focus & Energy Tracker — private log",
-        public:false,
-        files:gistPayload()
+        description:"Building the Best Jared — private log", public:false, files:gistPayload()
       })},tok);
       gid=g.id; lsSet(LS_GIST,gid); document.getElementById("ghGist").value=gid;
-      msg("Created secret gist "+gid+" — copy that ID onto your other device so both point at the same gist.");
+      msg("Created secret gist "+gid+" — copy that ID onto your other device.");
     }
     document.getElementById("ghGist").value=lsGet(LS_GIST,"");
-    setPill("syncPill","synced "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),"ok");
+    setPill("syncPill","synced "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),"ok");
   }catch(e){
     setPill("syncPill","sync failed","err");
-    msg(e.message+". If this says 401/403, the token is wrong, expired, or missing the Gists: Read and write permission.");
-  }finally{
-    document.getElementById("btnSync").disabled=false;
-  }
+    msg(e.message+". A 401/403 means the token is wrong, expired, or missing Gists: Read and write.");
+  }finally{ document.getElementById("btnSync").disabled=false; }
 }
 function forgetToken(){
-  lsDel(LS_TOK);
-  document.getElementById("ghTok").value="";
+  lsDel(LS_TOK); document.getElementById("ghTok").value="";
   setPill("syncPill","not configured","");
-  msg("Token removed from this device. Your log is still saved locally, and the gist is untouched.");
+  msg("Token removed from this device. Log still saved locally; gist untouched.");
 }
 function openGist(){
   const gid=lsGet(LS_GIST,"");
@@ -311,8 +342,7 @@ function openGist(){
 /* ---------- export / import ---------- */
 function exportData(){
   const box=document.getElementById("ioBox");
-  box.value=JSON.stringify({v:1,data:DB});
-  box.select();
+  box.value=JSON.stringify({v:2,data:DB}); box.select();
   try{document.execCommand("copy");}catch(e){}
   msg("Copied to clipboard.");
 }
@@ -333,8 +363,10 @@ function boot(){
   loadLocal(); loadPrefs(); loadDay(); calcCaff(); render();
   const gid=lsGet(LS_GIST,""); if(gid)document.getElementById("ghGist").value=gid;
   if(lsGet(LS_TOK,"")){ setPill("syncPill","token saved on this device","ok"); syncNow(true); }
-  if(Object.keys(DB).length===0){ document.getElementById("savePill").textContent="saves automatically"; }
-  else { document.getElementById("savePill").textContent=Object.keys(DB).length+" days logged"; document.getElementById("savePill").className="pill ok"; }
+  const n=Object.keys(DB).length;
+  const sp=document.getElementById("savePill");
+  if(n===0){ sp.textContent="saves automatically"; }
+  else { sp.textContent=n+" days logged"; sp.className="pill ok"; }
 }
 
 (function(){
