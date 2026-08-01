@@ -3,281 +3,502 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1a1a19">
+<meta name="theme-color" content="#EDEDE6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101109" media="(prefers-color-scheme: dark)">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Best Jared">
 <title>Building the Best Jared</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232a78d6'/><circle cx='16' cy='16' r='6' fill='none' stroke='white' stroke-width='3'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23EDEDE6'/><rect x='6' y='8' width='20' height='4' rx='1.5' fill='%2314150F'/><rect x='6' y='14' width='20' height='4' rx='1.5' fill='%2314150F'/><rect x='6.9' y='20.9' width='18.2' height='2.2' rx='1.1' fill='none' stroke='%2314150F' stroke-width='1.8'/></svg>">
 <style>
+  /* ============================================================
+     TOKENS
+
+     Two rules govern this palette and both are load-bearing:
+
+     1. The series slots --s1..--s4 are a validated categorical set
+        and belong to CHARTS ONLY. Interface chrome uses --accent,
+        which is deliberately NOT in the set. Before this, the active
+        tab, the Core Three dot and chart series 1 were all one blue,
+        so a blue dot in the UI and a blue dot in a chart meant
+        different things.
+     2. Status tokens are RESERVED. They never theme, they never
+        decorate, and they always ship with an icon or a word so
+        nothing carries meaning by hue alone.
+     ============================================================ */
   :root{
     color-scheme: light;
-    --surface-0:#f4f4f2; --surface-1:#fcfcfb; --surface-2:#eeeeeb;
-    --border:#dddcd7; --border-strong:#c3c2b7;
-    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#77766f;
-    --grid:#e1e0d9; --axis:#c3c2b7;
+    /* laboratory paper -- a pale green-grey, not cream */
+    --surface-0:#edede6; --surface-1:#f8f8f3; --surface-2:#e3e3da;
+    --border:#d4d5c9; --border-strong:#b6b7a7;
+    --text-primary:#14150f; --text-secondary:#4a4b42; --text-muted:#6a6b60;
+    --grid:#e1e1d7; --axis:#b6b7a7;
+
+    /* interface accent: the indigo of a written record. Chrome only. */
+    --accent:#3a3080; --accent-on:#ffffff;
+
+    /* the latch reads by FILL, never by hue, so it inverts per mode */
+    --latch-on:var(--text-primary);
+
     /* Categorical series slots, in fixed order. Validated: slots 1-4
        pass every adjacent gate in both modes; all-pairs forms cap at 3. */
     --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
-    /* Status tokens are RESERVED and never themed -- a status colour
-       must never impersonate a series, and always ships with an icon
-       and a word so it never carries meaning by hue alone. */
-    --st-good:#0ca30c; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#d03b3b;
-    --good:var(--st-good); --warn:var(--st-warning); --crit:var(--st-critical);
-    --radius:10px;
+
+    --st-good:#0a8f2f; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#c3352f;
+    /* Readable TEXT equivalents of the status hues. A status colour that
+       is right as a 7px dot or an 8px meter fill (3:1) is usually wrong
+       as 10px type (4.5:1), and the value that works on paper is wrong
+       on near-black. So each status ships a second token that flips, and
+       the raw --st-* values stay reserved for fills and strokes.
+       Verified against --surface-0 and --surface-1 in both modes. */
+    --warn-text:#8a6100; --park-text:#a84a1e; --crit-text:#b02b26; --good-text:#0f7a2b;
+
+    --radius:10px; --radius-sm:8px;
+    --tap:56px;
+
+    /* Three voices: measured, said, cited. */
+    --font-said:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-measured:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --font-cited:ui-serif,Georgia,"Times New Roman",serif;
   }
   @media (prefers-color-scheme: dark){
     :root:where(:not([data-theme="light"])){
       color-scheme: dark;
-      --surface-0:#111110; --surface-1:#1a1a19; --surface-2:#242422;
-      --border:#33332f; --border-strong:#4a4a45;
-      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
-      --grid:#2c2c2a; --axis:#383835;
+      --surface-0:#101109; --surface-1:#191a12; --surface-2:#23241a;
+      --border:#33342a; --border-strong:#4b4c40;
+      --text-primary:#ffffff; --text-secondary:#c6c7b9; --text-muted:#94958a;
+      --grid:#2a2b22; --axis:#3a3b30;
+      --accent:#a79ef5; --accent-on:#14150f;
+      --latch-on:#e8e9dc;
       --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+      --st-good:#3fbf5a; --st-critical:#e06a63;
+      --warn-text:var(--st-warning); --park-text:var(--st-serious); --crit-text:#e8867f;
+    --good-text:var(--st-good);
     }
   }
   :root[data-theme="dark"]{
     color-scheme: dark;
-    --surface-0:#111110; --surface-1:#1a1a19; --surface-2:#242422;
-    --border:#33332f; --border-strong:#4a4a45;
-    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
-    --grid:#2c2c2a; --axis:#383835;
+    --surface-0:#101109; --surface-1:#191a12; --surface-2:#23241a;
+    --border:#33342a; --border-strong:#4b4c40;
+    --text-primary:#ffffff; --text-secondary:#c6c7b9; --text-muted:#94958a;
+    --grid:#2a2b22; --axis:#3a3b30;
+    --accent:#a79ef5; --accent-on:#14150f;
+    --latch-on:#e8e9dc;
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --st-good:#3fbf5a; --st-critical:#e06a63;
+    --warn-text:var(--st-warning); --park-text:var(--st-serious); --crit-text:#e8867f;
+    --good-text:var(--st-good);
   }
 
+  /* ---------- base ---------- */
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
   body{margin:0;background:var(--surface-0);color:var(--text-primary);
-    font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font:15px/1.55 var(--font-said);
     -webkit-font-smoothing:antialiased;}
   .wrap{max-width:940px;margin:0 auto;padding:0 14px 96px}
-  h1{font-size:17px;line-height:1.2;margin:0;letter-spacing:-.01em}
-  .note{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:10px 0 0}
-  .why{font-size:12px;color:var(--text-muted);line-height:1.5;margin:6px 0 0}
-  a{color:var(--s1)}
+  a{color:var(--accent);text-underline-offset:2px}
 
-  button{font:inherit;font-size:13px;padding:8px 12px;border-radius:8px;
-    border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);cursor:pointer;}
+  /* Every focusable thing gets the same ring. The custom checkbox kills
+     the platform default with appearance:none, so without this the app
+     is unusable from a keyboard. */
+  :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+    outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .tapzone:focus-within{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--radius-sm)}
+
+  /* ---------- type roles ----------
+     measured / said / cited. Numbers are set like a logbook entry so a
+     column of wake times is comparable down the page; citations are set
+     in a serif so the literature reads as quoted, not as filler. */
+  .m{font-family:var(--font-measured);font-variant-numeric:tabular-nums;
+     font-feature-settings:"tnum" 1;letter-spacing:-.01em}
+  .eyebrow{font-size:10.5px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.09em;color:var(--text-secondary);margin:0}
+  .eyebrow span{font-weight:500;text-transform:none;letter-spacing:0;
+    color:var(--text-muted);font-size:11.5px}
+  .note{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:10px 0 0}
+  .note.bad{color:var(--crit-text)}
+  /* the cited voice */
+  .why,.evidence{font-family:var(--font-cited);font-size:13px;line-height:1.6;
+    color:var(--text-secondary);margin:6px 0 0}
+  .why em,.evidence em{font-style:italic}
+
+  h1{font-size:15px;line-height:1.2;margin:0;letter-spacing:-.005em;font-weight:700}
+
+  /* ---------- buttons ---------- */
+  button{font:inherit;font-size:13px;font-weight:600;padding:8px 12px;
+    border-radius:var(--radius-sm);border:1px solid var(--border-strong);
+    background:var(--surface-1);color:var(--text-primary);cursor:pointer;}
   button:hover{background:var(--surface-2)}
-  button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
-  button:disabled{opacity:.5;cursor:default}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-on)}
+  button.primary:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.4;cursor:default}
+  button:disabled:hover{background:var(--surface-1)}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+  .iconbtn{width:36px;height:36px;padding:0;display:inline-flex;align-items:center;
+    justify-content:center;border-radius:9px;color:var(--text-secondary)}
+  .iconbtn svg{width:17px;height:17px;display:block}
 
   /* ---------- header ---------- */
   header.top{position:sticky;top:0;z-index:20;background:var(--surface-0);
     display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:10px 0 8px;border-bottom:1px solid var(--border)}
-  .iconbtn{width:38px;height:38px;padding:0;display:inline-flex;align-items:center;
-    justify-content:center;font-size:16px;border-radius:9px}
+    padding:8px 0 7px;border-bottom:1px solid var(--border)}
+  header.top .brand{display:flex;align-items:baseline;gap:9px;min-width:0}
+  header.top .brand .sub{font-size:11px;color:var(--text-muted);white-space:nowrap}
 
-  .card{background:var(--surface-1);border:1px solid var(--border);
-    border-radius:var(--radius);padding:16px;margin-top:14px}
-  .card h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;
-    color:var(--text-secondary);margin:0 0 12px;font-weight:600;
-    display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+  /* ---------- date bar ----------
+     Three fixed defects: there is now a way back to today, the label
+     itself is that control, and you cannot walk into the future to
+     pre-tick a day that has not happened. */
+  .datebar{display:flex;align-items:center;gap:6px;padding:6px 0 0}
+  .datebar .daynav{width:32px;height:32px;padding:0;flex:none;
+    display:inline-flex;align-items:center;justify-content:center}
+  .datebar .daynav svg{width:14px;height:14px}
+  #btnToday{flex:1;text-align:center;font-size:13px;font-weight:600;
+    background:none;border:1px solid transparent;color:var(--text-primary);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #btnToday .back{display:none;color:var(--accent);font-weight:700}
+  #btnToday.away{border-color:var(--border)}
+  #btnToday.away .back{display:inline}
+  #btnToday:disabled{opacity:1;color:var(--text-primary)}
 
-  /* ---------- hero: a READ-OUT, never a control ----------
-     Sized so the six taps still clear the fold on a 375x812 phone
-     WITH the missed-twice callout showing. The taps are the thing
-     being protected; everything above them is on a budget. */
-  .hero{display:flex;align-items:center;gap:14px;padding:6px 0 2px}
-  .heronum{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1}
-  .herolab{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
-  .herosub{font-size:13px;color:var(--text-secondary);margin-top:2px}
-  .coremeter{display:flex;gap:2px;margin-top:6px}
-  .coremeter .seg{flex:1;height:28px;border-radius:5px;background:var(--surface-2);
-    display:flex;align-items:center;justify-content:center;font-size:10.5px;
-    color:var(--text-muted);font-weight:600;text-align:center;padding:0 2px;line-height:1.15}
-  .coremeter .seg.on{background:var(--s3);color:#fff}
+  .pill{font-family:var(--font-measured);font-size:10px;font-weight:600;
+    letter-spacing:.02em;padding:3px 7px;border-radius:99px;white-space:nowrap;
+    border:1px solid var(--border);color:var(--text-muted);background:var(--surface-1)}
+  .pill.ok{border-color:var(--border-strong);color:var(--text-secondary)}
+  .pill.busy{border-color:var(--border-strong);color:var(--text-muted)}
+  .pill.err{border-color:var(--st-critical);color:var(--crit-text)}
 
-  .datebar{display:flex;align-items:center;justify-content:space-between;gap:8px;
-    padding:4px 0 0}
-  .datebar .d{font-size:13px;color:var(--text-secondary);font-weight:600;flex:1}
-  .datebar button{width:32px;height:32px;padding:0;flex:none}
-  .card.tapcard{margin-top:10px;padding:4px 14px}
+  /* ============================================================
+     THE LATCH -- the signature, and a READ-OUT, never a control.
 
-  /* ---------- the six taps: the only write target ---------- */
-  .item{display:flex;align-items:center;gap:12px;min-height:56px;
-    border-top:1px solid var(--border);padding:4px 0}
-  .item:first-of-type{border-top:none}
-  .item.gap{border-top:2px solid var(--border-strong)}
-  .item .tapzone{flex:1;display:flex;align-items:center;gap:12px;cursor:pointer;
-    min-height:56px;-webkit-tap-highlight-color:transparent}
-  .item input[type=checkbox]{appearance:none;width:26px;height:26px;flex:none;
-    border:2px solid var(--border-strong);border-radius:7px;background:var(--surface-1);cursor:pointer;}
-  .item input[type=checkbox]:checked{background:var(--s3);border-color:var(--s3)}
-  .item input[type=checkbox]:checked::after{content:"";display:block;width:6px;height:12px;
-    margin:3px auto 0;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
-  .item .name{font-weight:600;font-size:14.5px;line-height:1.25}
-  .item .qual{display:block;font-weight:400;font-size:11.5px;color:var(--text-muted);margin-top:1px}
-  .item .whybtn{width:30px;height:30px;flex:none;padding:0;border-radius:50%;
-    font-size:12px;color:var(--text-muted);border-color:var(--border)}
-  .item .why{display:none}
-  .item.open .why{display:block;flex-basis:100%;padding:0 0 10px}
-  .core-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
-    background:var(--s1);margin-right:6px;vertical-align:1px}
-  .gpill{display:inline-block;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
-    padding:1px 5px;border-radius:4px;border:1px solid var(--border-strong);
-    color:var(--text-muted);margin-left:6px;vertical-align:1px;font-weight:700}
+     Three bars. Open is a hairline outline, closed is a solid fill.
+     It reads by WEIGHT, not hue, so it survives colour blindness,
+     direct morning sun and a half-awake glance from arm's length --
+     which is the only viewing condition this element ever has.
 
-  /* ---------- prescription strip ---------- */
-  .rx{border-left:3px solid var(--s1);padding:8px 0 8px 12px;margin-top:4px}
-  .rx .l1{font-size:13.5px;font-weight:600;line-height:1.35}
-  .rx .l2{font-size:12.5px;color:var(--text-secondary);margin-top:3px;line-height:1.4}
-  .rx .prov{font-size:11px;color:var(--text-muted);margin-top:5px}
-
-  /* ---------- meters ---------- */
-  .meters{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-  .mhead{display:flex;justify-content:space-between;align-items:baseline;
-    font-size:12px;color:var(--text-secondary);margin-bottom:4px}
-  .mhead b{font-variant-numeric:tabular-nums;color:var(--text-primary)}
-  .mhead b.ok{color:var(--st-good)}
-  .mtrack{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
-  .mfill{display:block;height:100%;background:var(--s1);border-radius:0 4px 4px 0}
-  .mfill.ok{background:var(--st-good)}
+     It replaces a 44px "2/3", a three-segment meter and a sentence:
+     three encodings of one fact, stacked, that made you parse the
+     same three behaviours twice before reaching the taps.
+     ============================================================ */
+  .latch{padding:10px 0 0}
+  .latchbars{display:flex;gap:6px}
+  .latchbars .bar{flex:1;height:12px;border-radius:3px;
+    border:1.5px solid var(--border-strong);background:transparent;
+    transition:background-color .18s ease,border-color .18s ease}
+  .latchbars .bar.on{background:var(--latch-on);border-color:var(--latch-on)}
+  .latchstate{margin-top:9px;font-size:14px;line-height:1.35;font-weight:600;
+    letter-spacing:-.005em}
+  .latchstate .line{display:flex;align-items:center;gap:7px}
+  .latchstate .tick{display:none;width:15px;height:15px;flex:none;color:var(--latch-on)}
+  .latchstate.counts .tick{display:block}
+  .latchstate .rest{display:block;font-size:12px;font-weight:400;
+    color:var(--text-muted);margin-top:3px;letter-spacing:0}
 
   /* ---------- status callouts: icon + word + colour, never colour alone ---------- */
-  .callout{display:none;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
-    border:1px solid var(--st-critical);margin-top:8px;font-size:12.5px;line-height:1.35}
-  .callout .ic{font-weight:700;color:var(--st-critical);flex:none}
-  .callout b{color:var(--st-critical)}
-  .verdict{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:9px;
-    margin-top:12px;border:1px solid var(--border)}
-  .verdict .dot{width:10px;height:10px;border-radius:50%;flex:none;margin-top:5px}
-  .verdict .vt{font-weight:700;font-size:13px}
-  .verdict .vd{font-size:12.5px;color:var(--text-secondary);margin-top:3px;line-height:1.5}
-  .v-good .dot{background:var(--st-good)} .v-good .vt{color:var(--st-good)}
-  .v-warn .dot{background:var(--st-warning)} .v-warn .vt{color:#8a6100}
-  .v-crit .dot{background:var(--st-critical)} .v-crit .vt{color:var(--st-critical)}
-  :root[data-theme="dark"] .v-warn .vt,
-  @media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])) .v-warn .vt{color:var(--st-warning)}}
+  .callout{display:none;align-items:flex-start;gap:9px;padding:8px 10px;
+    border-radius:var(--radius-sm);border:1px solid var(--st-critical);
+    background:var(--surface-1);margin-top:10px;font-size:12.5px;line-height:1.4}
+  .callout .ic{flex:none;width:15px;height:15px;color:var(--st-critical);margin-top:1px}
+  .callout b{color:var(--crit-text)}
 
-  label.f{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:5px;font-weight:600}
+  /* ---------- cards ---------- */
+  .card{background:var(--surface-1);border:1px solid var(--border);
+    border-radius:var(--radius);padding:16px;margin-top:14px}
+  .card > h2{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-secondary);margin:0 0 12px;font-weight:700;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .card.tapcard{margin-top:12px;padding:12px 14px 6px}
+
+  /* ============================================================
+     THE SIX TAPS -- the only write target in the app.
+
+     The two tiers are named in words rather than implied by a 7px dot
+     and a 2px border. The Core Three idea is the most important thing
+     the app knows; it should not be carried by a dot.
+     ============================================================ */
+  /* The boundary between the two tiers is a rule plus the change in
+     checkbox weight. It carried a second eyebrow ("The other three")
+     until that label cost 32px of fold budget to say something the
+     rule already says. */
+  .tier + .tier{margin-top:6px;padding-top:6px;border-top:1px solid var(--border)}
+  .tier > .eyebrow{margin-bottom:2px}
+  .item{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    min-height:var(--tap)}
+  .item + .item{border-top:1px solid var(--border)}
+  .item .tapzone{flex:1;display:flex;align-items:center;gap:12px;cursor:pointer;
+    min-height:var(--tap);-webkit-tap-highlight-color:transparent;min-width:0}
+  .item input[type=checkbox]{appearance:none;-webkit-appearance:none;
+    width:26px;height:26px;flex:none;border:2px solid var(--border-strong);
+    border-radius:7px;background:var(--surface-1);cursor:pointer;
+    transition:background-color .15s ease,border-color .15s ease}
+  .item input[type=checkbox]:checked{background:var(--text-secondary);border-color:var(--text-secondary)}
+  /* The Core Three fill to full ink, so the checkbox weight mirrors the
+     latch above it and the tier you are in is legible without the label. */
+  .tier-core input[type=checkbox]:checked{background:var(--latch-on);border-color:var(--latch-on)}
+  .item input[type=checkbox]:checked::after{content:"";display:block;width:6px;height:11px;
+    margin:3.5px auto 0;border:solid var(--surface-1);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  :root[data-theme="dark"] .item input[type=checkbox]:checked::after,
+  :root[data-theme="dark"] .tier-core input[type=checkbox]:checked::after{border-color:#14150f}
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])) .item input[type=checkbox]:checked::after{border-color:#14150f}
+  }
+  .item .name{font-weight:600;font-size:14.5px;line-height:1.25;min-width:0}
+  .item .qual{display:block;font-weight:400;font-size:11.5px;color:var(--text-muted);
+    margin-top:1px;line-height:1.35}
+
+  /* The measurement lives ON the row it evidences. Before this, the
+     Garmin wake time that justifies tap 1 was three taps away inside a
+     collapsed "Details" panel. */
+  .item .meas{font-family:var(--font-measured);font-variant-numeric:tabular-nums;
+    font-size:12.5px;color:var(--text-muted);flex:none;text-align:right;
+    white-space:nowrap}
+  .item .meas:empty{display:none}
+  .item .whybtn{width:32px;height:32px;flex:none;padding:0;border-radius:50%;
+    font-family:var(--font-cited);font-size:14px;font-weight:700;line-height:1;
+    color:var(--text-muted);border-color:var(--border);background:transparent}
+  .item .whybtn:hover{background:var(--surface-2);color:var(--text-primary)}
+  .item .evidence{display:none}
+  .item.open .evidence{display:block;flex-basis:100%;padding:0 0 12px;
+    border-left:2px solid var(--border);padding-left:12px;margin-top:0}
+  .item.open .whybtn{background:var(--surface-2);color:var(--text-primary)}
+
+  /* app.js builds .core-dot into the triage rows, which sit directly under
+     the triage chart. That chart marks Core Three with --s1, so this one
+     must too -- matching the adjacent chart beats matching the chrome. */
+  .core-dot{display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--s1);margin-right:7px;vertical-align:1px}
+  .gpill{display:inline-block;font-family:var(--font-measured);font-size:9px;
+    letter-spacing:.03em;text-transform:uppercase;padding:1px 5px;border-radius:4px;
+    border:1px solid var(--border);color:var(--text-muted);margin-left:6px;
+    vertical-align:1px;font-weight:600}
+
+  /* ---------- prescription strip ---------- */
+  .rx{border-left:2px solid var(--accent);padding:2px 0 2px 13px}
+  .rx .l1{font-size:14px;font-weight:600;line-height:1.35}
+  .rx .l2{font-family:var(--font-measured);font-size:12px;color:var(--text-secondary);
+    margin-top:4px;line-height:1.45}
+  .rx .prov{font-size:11px;color:var(--text-muted);margin-top:6px}
+
+  /* ---------- meters ---------- */
+  .meters{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .mhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+    font-size:12px;color:var(--text-secondary);margin-bottom:5px}
+  .mhead b{font-family:var(--font-measured);font-variant-numeric:tabular-nums;
+    color:var(--text-primary);font-size:12px;white-space:nowrap}
+  .mhead b.ok{color:var(--good-text)}
+  .mtrack{height:7px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+  .mfill{display:block;height:100%;background:var(--text-secondary);border-radius:0 4px 4px 0}
+  .mfill.ok{background:var(--st-good)}
+
+  /* ---------- verdicts ---------- */
+  .verdict{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;
+    border-radius:var(--radius-sm);margin-top:12px;border:1px solid var(--border);
+    background:var(--surface-1)}
+  .verdict .dot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:5px;
+    background:var(--text-muted)}
+  .verdict .vt{font-weight:700;font-size:13px}
+  .verdict .vd{font-family:var(--font-cited);font-size:12.5px;color:var(--text-secondary);
+    margin-top:4px;line-height:1.55}
+  .v-good{border-color:var(--st-good)} .v-good .dot{background:var(--st-good)} .v-good .vt{color:var(--good-text)}
+  .v-warn{border-color:var(--st-warning)} .v-warn .dot{background:var(--st-warning)} .v-warn .vt{color:var(--warn-text)}
+  .v-crit{border-color:var(--st-critical)} .v-crit .dot{background:var(--st-critical)} .v-crit .vt{color:var(--crit-text)}
+
+  /* ---------- form controls ---------- */
+  label.f{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--text-secondary);margin-bottom:6px}
   input[type=time],input[type=number],input[type=text],input[type=password],input[type=date],select,textarea{
-    width:100%;font:inherit;font-size:16px;padding:9px 10px;border-radius:8px;
+    width:100%;font:inherit;font-size:16px;padding:9px 10px;border-radius:var(--radius-sm);
     border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);}
-  textarea{resize:vertical;min-height:64px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  input[type=time],input[type=number],input[type=date]{font-family:var(--font-measured)}
+  select{font-size:15px}
+  textarea{resize:vertical;min-height:64px;font-size:12px;font-family:var(--font-measured)}
   .grid{display:grid;gap:12px}
   .g2{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
   .g3{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
-  .inlinechk{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--text-secondary)}
-  .inlinechk input{width:22px;height:22px;accent-color:var(--s3)}
-  details{margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
-  summary{cursor:pointer;font-size:13px;color:var(--text-secondary);font-weight:600}
+  .inlinechk{display:flex;align-items:center;gap:10px;font-size:13.5px;
+    color:var(--text-secondary);min-height:44px}
+  .inlinechk input{width:22px;height:22px;flex:none;accent-color:var(--accent)}
+  .inlinechk .qual{display:block;font-size:11.5px;color:var(--text-muted)}
+  details{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+  summary{cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--text-secondary);padding:4px 0;min-height:28px}
+  summary:hover{color:var(--text-primary)}
 
-  .stat{display:flex;gap:20px;flex-wrap:wrap;margin-top:12px}
-  .stat div{min-width:74px}
-  .stat .n{font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
-  .stat .l{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  /* ---------- stat rows ---------- */
+  .stat{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px}
+  .stat div{min-width:70px}
+  .stat .n{font-family:var(--font-measured);font-size:21px;font-weight:500;
+    letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat .l{font-size:10px;color:var(--text-muted);text-transform:uppercase;
+    letter-spacing:.07em;margin-top:4px;font-weight:600}
+
+  /* the one big measured number: week no., review lead */
+  .figure{display:flex;align-items:baseline;gap:13px;padding:4px 0 2px}
+  .figure .fn{font-family:var(--font-measured);font-size:40px;font-weight:500;
+    letter-spacing:-.045em;line-height:1;font-variant-numeric:tabular-nums}
+  .figure .fl{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;
+    letter-spacing:.09em;font-weight:700}
+  .figure .fs{font-size:12.5px;color:var(--text-secondary);margin-top:3px}
 
   /* ---------- charts ---------- */
   .chart{width:100%;margin-top:6px}
   .chart svg{display:block;width:100%;height:auto;overflow:visible}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary);margin-top:8px}
-  .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;
+    color:var(--text-secondary);margin-top:10px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;
+    margin-right:6px;vertical-align:-1px}
   .charttip{position:absolute;z-index:60;display:none;pointer-events:none;
-    background:var(--surface-1);border:1px solid var(--border-strong);border-radius:8px;
+    background:var(--surface-1);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
     padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.16);max-width:240px}
   .charttip .tiprow{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
-  .charttip b{font-weight:700;color:var(--text-primary)}
+  .charttip b{font-family:var(--font-measured);font-weight:700;color:var(--text-primary)}
   .charttip span{color:var(--text-secondary)}
   .charttip .tipkey{display:inline-block;width:10px;height:3px;border-radius:2px}
 
   /* ---------- triage ---------- */
-  .trow{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+  .trow{display:flex;align-items:center;gap:10px;padding:9px 0;
+    border-top:1px solid var(--border);font-size:13px}
   .trow:first-child{border-top:none}
-  .tname{flex:1;color:var(--text-secondary);font-weight:600}
-  .tcount{font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:12px}
-  .chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;
-    border:1px solid var(--border-strong);color:var(--text-muted);white-space:nowrap}
-  .chip.keep{border-color:var(--st-good);color:var(--st-good)}
-  .chip.watch{border-color:var(--st-warning);color:#8a6100}
-  .chip.park{border-color:var(--st-serious);color:#a84a1e}
-  .parkbtn{margin-left:6px;padding:1px 6px;font-size:10.5px;border-radius:5px}
+  .tname{flex:1;color:var(--text-secondary);font-weight:600;min-width:0}
+  .tcount{font-family:var(--font-measured);font-variant-numeric:tabular-nums;
+    color:var(--text-muted);font-size:11.5px;white-space:nowrap}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;
+    padding:3px 8px;border-radius:99px;border:1px solid var(--border-strong);
+    color:var(--text-muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.05em}
+  .chip.keep{border-color:var(--st-good);color:var(--good-text)}
+  .chip.watch{border-color:var(--st-warning);color:var(--warn-text)}
+  .chip.park{border-color:var(--st-serious);color:var(--park-text)}
+  .parkbtn{margin-left:4px;padding:2px 7px;font-size:10px;border-radius:5px;
+    text-transform:none;letter-spacing:0}
   .unpark{display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:6px 0;border-top:1px solid var(--border);font-size:12.5px}
-  .fnresult{margin-top:10px;font-size:12.5px;color:var(--text-secondary);line-height:1.6}
-  .fnresult div{padding:1px 0}
-  .fnresult .fnwarn{color:#8a6100}
-  .note.bad{color:var(--st-critical)}
-  input[type=file]{width:100%;font-size:13px;padding:8px;border-radius:8px;
-    border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary)}
+    padding:9px 0;border-top:1px solid var(--border);font-size:12.5px}
+  .unpark:first-child{border-top:none}
+  .fnresult{margin-top:12px;font-family:var(--font-measured);font-size:12px;
+    color:var(--text-secondary);line-height:1.7}
+  .fnresult .fnwarn{color:var(--warn-text)}
+  input[type=file]{width:100%;font-size:13px;padding:9px;border-radius:var(--radius-sm);
+    border:1px dashed var(--border-strong);background:var(--surface-1);color:var(--text-primary)}
 
+  /* ---------- tables ---------- */
   table{border-collapse:collapse;width:100%;font-size:12.5px}
-  th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
-  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:600;white-space:nowrap}
+  th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);
+    font-weight:700;white-space:nowrap}
+  td{font-family:var(--font-measured);font-variant-numeric:tabular-nums}
   td.rowh{white-space:nowrap;color:var(--text-secondary);font-weight:600}
-  td.empty{color:var(--text-muted);text-align:center;padding:18px}
-  .notecell{color:var(--text-primary)}
-  .misscell{color:var(--text-muted);font-size:11.5px}
+  td.empty{color:var(--text-muted);text-align:center;padding:22px;font-family:var(--font-said)}
+  .notecell{color:var(--text-primary);font-family:var(--font-said)}
+  .misscell{color:var(--text-muted);font-size:11px;font-family:var(--font-said)}
   .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .scrollx table{min-width:900px}
   .scrolly{max-height:420px;overflow-y:auto}
-  table.lift{margin-top:10px;font-size:12.5px}
+  table.lift{margin-top:12px}
   table.lift td{white-space:nowrap}
-  .loadin{width:78px;font-size:13px;padding:4px 6px}
-  .fnload{font-weight:700;font-size:12.5px;white-space:nowrap}
-  .fnsrc{display:block;font-weight:400;font-size:10.5px;color:var(--text-muted)}
+  table.lift td.rowh{font-family:var(--font-said)}
+  .loadin{width:84px;font-size:13px;padding:5px 7px;font-family:var(--font-measured)}
+  .fnload{font-family:var(--font-measured);font-weight:700;font-size:12px;white-space:nowrap}
+  .fnsrc{display:block;font-family:var(--font-said);font-weight:400;font-size:10.5px;
+    color:var(--text-muted)}
 
-  /* ---------- programme rail ---------- */
-  .rail{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;margin-top:10px}
+  /* ---------- programme rail ----------
+     Numbered because these sixteen weeks ARE a sequence and the order
+     carries information. Nothing else in the app is numbered. */
+  .rail{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;margin-top:12px}
   .wkcell{background:var(--surface-2);border-radius:5px;padding:5px 0 4px;text-align:center}
-  .wkcell b{font-size:9.5px;color:var(--text-muted);font-weight:600;display:block}
-  .wkcell.now{outline:2px solid var(--s1)}
-  .wkcell.past{opacity:.85}
+  .wkcell b{font-family:var(--font-measured);font-size:9.5px;color:var(--text-muted);
+    font-weight:600;display:block}
+  .wkcell.now{outline:2px solid var(--accent);outline-offset:1px}
+  .wkcell.now b{color:var(--text-primary)}
+  .wkcell.past{opacity:.8}
   .wkdots{display:flex;justify-content:center;gap:2px;margin-top:3px}
-  .wkdots .dot{width:8px;height:8px;border-radius:50%;border:1px solid var(--border-strong);display:block}
+  .wkdots .dot{width:8px;height:8px;border-radius:50%;
+    border:1px solid var(--border-strong);display:block}
   .wkdots .dot.done{background:var(--s3);border-color:var(--s3)}
   .wkdots .dot.miss{border-color:var(--st-critical)}
-  .pgkind{font-size:15px;font-weight:700}
-  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
-  .filters select{width:auto;font-size:13px;padding:6px 8px}
-  .ptag{float:right;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;
-    padding:1px 6px;border-radius:4px;border:1px solid var(--border-strong);color:var(--text-muted);font-weight:700}
-  .ptag.counterproductive{border-color:var(--st-critical);color:var(--st-critical)}
-  .ptag.null,.ptag.unsupported{border-color:var(--st-serious);color:#a84a1e}
+  .pgkind{font-size:16px;font-weight:700;letter-spacing:-.01em}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .filters select{width:auto;font-size:13px;padding:7px 9px;flex:1;min-width:130px}
+  .filters button{flex:none}
+
+  /* Parked-item tags name a KIND of exclusion, not a severity ramp --
+     so only the one that says "this actively harms" is marked. */
+  .ptag{float:right;font-size:9px;text-transform:uppercase;letter-spacing:.06em;
+    padding:2px 6px;border-radius:4px;border:1px solid var(--border);
+    color:var(--text-muted);font-weight:700;margin-left:8px}
+  .ptag.counterproductive{border-color:var(--st-critical);color:var(--crit-text)}
 
   /* ---------- bottom tab bar ---------- */
   .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
     background:var(--surface-1);border-top:1px solid var(--border);
     padding-bottom:env(safe-area-inset-bottom)}
   .tabbar button{flex:1;height:56px;border:none;border-radius:0;background:none;
-    font-size:12px;font-weight:600;color:var(--text-muted);display:flex;
-    flex-direction:column;align-items:center;justify-content:center;gap:2px}
-  .tabbar button .ti{font-size:16px;line-height:1}
-  .tabbar button.on{color:var(--s1)}
+    font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--text-muted);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+  .tabbar button svg{width:19px;height:19px;display:block}
+  .tabbar button.on{color:var(--accent)}
   .tabbar button:hover{background:var(--surface-2)}
+  .tabbar button:focus-visible{outline-offset:-3px}
 
-  @media print{ body{background:#fff} .tabbar,.btnrow,#gate{display:none} .card{break-inside:avoid} }
-
+  /* ---------- gate ---------- */
   #gate{position:fixed;inset:0;z-index:50;background:var(--surface-0);display:flex;
     align-items:center;justify-content:center;padding:24px}
   #gate .box{width:100%;max-width:380px}
+  #gate .latchbars{margin-bottom:20px;max-width:170px}
+  #gate .latchbars .bar{height:10px}
   #gate h2{font-size:16px;margin:0 0 6px;color:var(--text-primary)}
   #gate p{font-size:12.5px;color:var(--text-muted);margin:0 0 16px;line-height:1.5}
   #gate .row{display:flex;gap:8px}
   #gate input{flex:1}
-  #gate .err{color:var(--st-critical);font-size:12.5px;margin-top:10px;min-height:1.2em}
-  #gate code{display:block;word-break:break-all;background:var(--surface-2);padding:8px 10px;
-    border-radius:7px;font-size:11.5px;margin-top:10px;font-family:ui-monospace,Menlo,monospace}
+  #gate .err{color:var(--crit-text);font-size:12.5px;margin-top:10px;min-height:1.2em}
+  #gate code{display:block;word-break:break-all;background:var(--surface-2);padding:9px 10px;
+    border-radius:7px;font-size:11px;margin-top:10px;font-family:var(--font-measured)}
   #app{display:none}
+
+  @media print{
+    body{background:#fff}
+    .tabbar,.btnrow,#gate,.datebar,.whybtn{display:none}
+    .card{break-inside:avoid;border-color:#ccc}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
+      transition-duration:.01ms !important;scroll-behavior:auto !important}
+  }
 </style>
 </head>
 <body>
 
+<!-- Shared icon defs. Inline SVG rather than Unicode glyphs, which
+     render at wildly different weights and baselines across platforms
+     (the old tab bar used ✓ ▤ ◱ and none of them matched). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <g id="i-check"><path d="M3 8.5l3.5 3.5L13 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g id="i-prog"><path d="M2.5 4h11M2.5 8h11M2.5 12h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+  <g id="i-review"><path d="M2.5 13V9M6.5 13V4M10.5 13V7M14 13V2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+  <g id="i-setup"><path d="M8 10.2a2.2 2.2 0 100-4.4 2.2 2.2 0 000 4.4z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></g>
+  <g id="i-left"><path d="M9.5 3L5 8l4.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g id="i-right"><path d="M6.5 3L11 8l-4.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g id="i-theme"><path d="M8 1.8a6.2 6.2 0 100 12.4V1.8z" fill="currentColor"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/></g>
+  <g id="i-alert"><path d="M8 5v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="12" r="1.15" fill="currentColor"/><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.5"/></g>
+</defs></svg>
+
 <div id="gate">
   <div class="box">
+    <!-- Three open bars: the latch, unlatched. -->
+    <div class="latchbars" aria-hidden="true">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
     <h2>Locked</h2>
-    <p>Enter your passphrase. This device will remember it — once per browser, then never again.</p>
+    <p>Enter your passphrase. This device remembers it — once per browser, then never again.</p>
     <div class="row">
       <input type="password" id="gPass" placeholder="passphrase" autocomplete="current-password"
              onkeydown="if(event.key==='Enter')tryUnlock()">
       <button class="primary" onclick="tryUnlock()">Unlock</button>
     </div>
-    <div class="err" id="gErr"></div>
+    <div class="err" id="gErr" role="alert"></div>
     <details>
       <summary>Set or change the passphrase</summary>
-      <p style="margin-top:10px">Type the passphrase you want, copy the hash, paste it into
+      <p style="margin-top:10px;text-transform:none;letter-spacing:0">Type the passphrase you want, copy the hash, paste it into
         <code style="display:inline;padding:1px 4px">GATE_HASH</code> in
         <code style="display:inline;padding:1px 4px">gate.js</code>.</p>
       <div class="row"><input type="text" id="gNew" placeholder="new passphrase" autocomplete="off" oninput="mkHash()"></div>
@@ -290,98 +511,123 @@
 <div class="wrap">
 
 <header class="top">
-  <h1>Building the Best Jared</h1>
+  <div class="brand">
+    <h1>Best Jared</h1>
+    <span class="sub" id="hdrWeek"></span>
+  </div>
   <div class="btnrow">
-    <button class="iconbtn" onclick="toggleTheme()" aria-label="Toggle theme" title="Theme">◐</button>
-    <button class="iconbtn" onclick="go('setup')" aria-label="Setup" title="Setup">⚙</button>
+    <button class="iconbtn" onclick="toggleTheme()" aria-label="Switch light or dark theme" title="Theme">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-theme"/></svg></button>
+    <span class="pill" id="savePill">saves automatically</span>
   </div>
 </header>
 
 <!-- ======================= TODAY ======================= -->
-<div id="v-today">
+<div id="v-today" role="tabpanel" aria-labelledby="tab-today">
 
   <div class="datebar">
-    <button onclick="shiftDay(-1)" aria-label="Previous day">←</button>
-    <span class="d" id="todayLabel"></span>
-    <span class="pill" id="savePill">saves automatically</span>
-    <button onclick="shiftDay(1)" aria-label="Next day">→</button>
+    <button class="daynav" id="btnPrevDay" onclick="shiftDay(-1)" aria-label="Previous day">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-left"/></svg></button>
+    <button id="btnToday" onclick="goToday()">
+      <span id="todayLabel"></span><span class="back"> · back to today</span>
+    </button>
+    <button class="daynav" id="btnNextDay" onclick="shiftDay(1)" aria-label="Next day">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-right"/></svg></button>
   </div>
 
-  <div class="hero">
-    <div class="heronum" id="heroNum">0/3</div>
-    <div>
-      <div class="herolab">Core Three · today</div>
-      <div class="herosub" id="heroSub"></div>
+  <!-- THE LATCH: read-out, never a control. -->
+  <div class="latch">
+    <div class="latchbars" id="coreMeter" role="img" aria-label="Core Three"></div>
+    <div class="latchstate" id="latchState">
+      <div class="line">
+        <svg class="tick" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-check"/></svg>
+        <span id="heroSub"></span>
+      </div>
+      <span class="rest" id="heroRest"></span>
     </div>
+    <span id="heroNum" hidden></span>
   </div>
-  <div class="coremeter" id="coreMeter" aria-hidden="true"></div>
 
-  <div class="callout" id="missedTwice">
-    <span class="ic" aria-hidden="true">!</span>
+  <div class="callout" id="missedTwice" role="status">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-alert"/></svg>
     <div><b>Missed twice</b> — <span id="missedTwiceText"></span></div>
   </div>
 
   <div class="card tapcard">
     <div id="tapList">
-      <div class="item">
-        <label class="tapzone"><input type="checkbox" data-k="wake" onchange="save()">
-          <span class="name"><span class="core-dot"></span>Woke within ±30 min of target<span class="gpill" id="garminPill">Garmin</span></span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">The gate on everything else. Windred 2024 (N=60,977): sleep regularity predicted
-          mortality better than duration, and duration added nothing once regularity was in the model.</div>
+      <div class="tier tier-core">
+        <p class="eyebrow">Core Three <span>— hit these and the day counts</span></p>
+
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="wake" onchange="save()">
+            <span class="name">Woke within ±30 min of target<span class="gpill" id="garminPill">Garmin</span></span></label>
+          <span class="meas" id="mWake"></span>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for waking within 30 minutes of target">?</button>
+          <div class="evidence">The gate on everything else. Windred 2024 (N=60,977): sleep regularity predicted
+            mortality better than duration, and duration added nothing once regularity was in the model.</div>
+        </div>
+
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="light" onchange="save()">
+            <span class="name">Outside within 90 min of waking
+              <span class="qual">10+ minutes. The lever that actually moves the hour.</span></span></label>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for morning light">?</button>
+          <div class="evidence">The strongest causal mechanism in the review. Wright et al. 2013: one week of
+            natural light advanced melatonin onset ~2 hours, within-subject, objective endpoint — and late
+            chronotypes shifted most. Phase-resetting is daily by nature; a long Saturday walk does nothing for Tuesday.</div>
+        </div>
+
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="train" onchange="save()">
+            <span class="name">Trained — lift, run, or stair snacks</span></label>
+          <span class="meas" id="mTrain"></span>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for training">?</button>
+          <div class="evidence">Exercise logging is the only self-monitoring category that survives long-term:
+            61% sustained at 11 months vs 21% for diet logging. Missed the run? 3 × 30 s all-out stair climbs
+            counts — that protocol produced +7% VO2peak from ~27 total minutes of work over 6 weeks.</div>
+        </div>
       </div>
-      <div class="item">
-        <label class="tapzone"><input type="checkbox" data-k="light" onchange="save()">
-          <span class="name"><span class="core-dot"></span>Outside within 90 min of waking
-            <span class="qual">10+ minutes. The lever that actually moves the hour.</span></span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">The strongest causal mechanism in the review. Wright et al. 2013: one week of
-          natural light advanced melatonin onset ~2 hours, within-subject, objective endpoint — and late
-          chronotypes shifted most. Phase-resetting is daily by nature; a long Saturday walk does nothing for Tuesday.</div>
-      </div>
-      <div class="item">
-        <label class="tapzone"><input type="checkbox" data-k="train" onchange="save()">
-          <span class="name"><span class="core-dot"></span>Trained — lift, run, or stair snacks</span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">Exercise logging is the only self-monitoring category that survives long-term:
-          61% sustained at 11 months vs 21% for diet logging. Missed the run? 3 × 30 s all-out stair climbs
-          counts — that protocol produced +7% VO2peak from ~27 total minutes of work over 6 weeks.</div>
-      </div>
-      <div class="item gap">
-        <label class="tapzone"><input type="checkbox" data-k="caff" onchange="save()">
-          <span class="name">Caffeine within plan</span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">Gardiner 2023 (24 studies): −45 min total sleep, −11.4 min deep sleep.
-          Feeds straight back into the anchor.</div>
-      </div>
-      <div class="item">
-        <label class="tapzone"><input type="checkbox" data-k="block" onchange="save()">
-          <span class="name">Both binding blocks ran
-            <span class="qual">phone <em>and</em> laptop</span></span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">WEIS 2017 (N=455): imposed blocking +22–24% productivity; the identical tool under
-          user control produced nothing, with 30% never switching it on. If you can dismiss it in one tap it's a dashboard.</div>
-      </div>
-      <div class="item">
-        <label class="tapzone"><input type="checkbox" data-k="log" onchange="save()">
-          <span class="name">Logged today, in writing</span></label>
-        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
-        <div class="why">Harkin 2016 (138 RCTs, N=19,951): progress monitoring → goal attainment d+ = 0.40,
-          and recorded beats unrecorded. Monitoring behaviour improves behaviour (0.79); monitoring outcomes
-          improves outcomes (0.62). They don't cross over — which is why this counts behaviours, not tickets.</div>
+
+      <div class="tier">
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="caff" onchange="save()">
+            <span class="name">Caffeine within plan</span></label>
+          <span class="meas" id="mCaff"></span>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for the caffeine plan">?</button>
+          <div class="evidence">Gardiner 2023 (24 studies): −45 min total sleep, −11.4 min deep sleep.
+            Feeds straight back into the anchor.</div>
+        </div>
+
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="block" onchange="save()">
+            <span class="name">Both binding blocks ran
+              <span class="qual">phone <em>and</em> laptop</span></span></label>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for binding blocks">?</button>
+          <div class="evidence">WEIS 2017 (N=455): imposed blocking +22–24% productivity; the identical tool under
+            user control produced nothing, with 30% never switching it on. If you can dismiss it in one tap it's a dashboard.</div>
+        </div>
+
+        <div class="item">
+          <label class="tapzone"><input type="checkbox" data-k="log" onchange="save()">
+            <span class="name">Logged today, in writing</span></label>
+          <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for writing the day down">?</button>
+          <div class="evidence">Harkin 2016 (138 RCTs, N=19,951): progress monitoring → goal attainment d+ = 0.40,
+            and recorded beats unrecorded. Monitoring behaviour improves behaviour (0.79); monitoring outcomes
+            improves outcomes (0.62). They don't cross over — which is why this counts behaviours, not tickets.</div>
+        </div>
       </div>
     </div>
 
-    <div class="grid" style="margin-top:12px">
-      <div><label class="f" for="fNote">One line: what actually got in the way today?</label>
-        <input type="text" id="fNote" placeholder="vague ticket / late night / meeting-shredded / fine" onchange="save()"></div>
+    <div style="margin-top:14px">
+      <label class="f" for="fNote">What got in the way today?</label>
+      <input type="text" id="fNote" placeholder="vague ticket / late night / meeting-shredded / fine" onchange="save()">
     </div>
 
     <details>
-      <summary>Details — times, session type, distance</summary>
-      <div class="grid g3" style="margin-top:10px">
+      <summary>Times, session type, distance</summary>
+      <div class="grid g3" style="margin-top:12px">
         <div><label class="f" for="fWake">Wake time</label><input type="time" id="fWake" onchange="save()"></div>
-        <div><label class="f" for="fBed">Bedtime the night before</label><input type="time" id="fBed" onchange="save()"></div>
+        <div><label class="f" for="fBed">Bedtime night before</label><input type="time" id="fBed" onchange="save()"></div>
         <div><label class="f" for="fTrain">Session type</label>
           <select id="fTrain" onchange="save()">
             <option value="">— none —</option><option value="lift">Lift</option>
@@ -401,7 +647,7 @@
             <option value="">— auto —</option><option value="A">A</option><option value="B">B</option>
           </select></div>
       </div>
-      <div class="grid g2" style="margin-top:10px">
+      <div class="grid g2" style="margin-top:12px">
         <div class="inlinechk"><input type="checkbox" id="fSocial" onchange="save()">
           <label for="fSocial">Substantive social contact <span class="qual">≥30 min, non-work, ≥1 in person this week</span></label></div>
         <div class="inlinechk"><input type="checkbox" id="fProtein" onchange="save()">
@@ -423,7 +669,7 @@
         <div class="vd" id="rescueText"></div>
       </div></div>
     </div>
-    <button style="margin-top:10px" onclick="go('programme')">Open the programme →</button>
+    <button style="margin-top:12px" onclick="go('programme')">Open the programme</button>
   </div>
 
   <div class="card">
@@ -440,7 +686,7 @@
     <h2><span>Caffeine cutoff</span><span class="pill" id="caffSummary"></span></h2>
     <details>
       <summary>Adjust dose, timing and half-life</summary>
-      <div class="grid g3" style="margin-top:10px">
+      <div class="grid g3" style="margin-top:12px">
         <div><label class="f" for="cDose">Dose (mg)</label>
           <input type="number" id="cDose" value="160" min="0" max="600" step="10" oninput="calcCaff();savePrefs()"></div>
         <div><label class="f" for="cTime">Taken at</label>
@@ -467,17 +713,17 @@
 </div>
 
 <!-- ======================= PROGRAMME ======================= -->
-<div id="v-programme" style="display:none">
-  <div class="hero">
-    <div class="heronum" id="pgWeekNum">—</div>
-    <div><div class="herolab">Week</div><div class="herosub" id="pgWeekOf"></div></div>
+<div id="v-programme" style="display:none" role="tabpanel" aria-labelledby="tab-programme">
+  <div class="figure">
+    <div class="fn" id="pgWeekNum">—</div>
+    <div><div class="fl">Week</div><div class="fs" id="pgWeekOf"></div></div>
   </div>
   <p class="note" id="pgHorizon"></p>
 
   <div class="card">
     <h2>Today's session</h2>
     <div id="pgToday"></div>
-    <div id="pgCeiling" style="margin-top:12px"></div>
+    <div id="pgCeiling" style="margin-top:14px"></div>
   </div>
 
   <div class="card">
@@ -489,7 +735,7 @@
       <span><i style="border:1px solid var(--border-strong)"></i>Still ahead</span>
     </div>
     <p class="why" id="pgInjury"></p>
-    <div style="margin-top:12px">
+    <div style="margin-top:14px">
       <label class="f" for="pgW17">Week 17 — what happens when the programme ends?</label>
       <input type="text" id="pgW17" placeholder="Decide this now, in week 1." onchange="saveW17()">
       <p class="why">Fokkema 2018 followed 774 novice runners: the strongest modifiable dropout predictor was
@@ -500,7 +746,7 @@
 
   <div class="card">
     <h2>Guardrails</h2>
-    <ul class="note" id="pgGuards" style="padding-left:18px"></ul>
+    <ul class="why" id="pgGuards" style="padding-left:18px"></ul>
     <p class="why" id="pgTenPct"></p>
     <p class="why" id="pgConcurrent"></p>
   </div>
@@ -508,51 +754,47 @@
   <div class="card">
     <h2>Lifting</h2>
     <div id="pgFitnotes"></div>
-    <p class="note" id="pgSets" style="margin-top:14px"></p>
-    <ul class="note" id="pgNegations" style="padding-left:18px"></ul>
+    <p class="why" id="pgSets" style="margin-top:16px"></p>
+    <ul class="why" id="pgNegations" style="padding-left:18px"></ul>
   </div>
 
   <div class="card">
     <h2>What to expect</h2>
-    <ul class="note" id="pgExpect" style="padding-left:18px"></ul>
+    <ul class="why" id="pgExpect" style="padding-left:18px"></ul>
   </div>
 </div>
 
 <!-- ======================= REVIEW ======================= -->
-<div id="v-review" style="display:none">
-  <div class="card">
-    <h2>Scope</h2>
-    <div class="filters">
-      <select onchange="setWindow(this.value)" aria-label="Time window">
-        <option value="28">Last 4 weeks</option>
-        <option value="56" selected>Last 8 weeks</option>
-        <option value="84">Last 12 weeks</option>
-        <option value="365">Last year</option>
-      </select>
-      <select onchange="setDayFilter(this.value)" aria-label="Day filter">
-        <option value="all">All days</option>
-        <option value="weekdays">Weekdays only</option>
-        <option value="weekends">Weekends only</option>
-      </select>
-      <button onclick="toggleReviewTable()"><span id="rvToggle">Show table</span></button>
-    </div>
-    <p class="note"><b id="rvCoverage">—</b> — every percentage below is read against this.</p>
-    <div style="margin-top:10px">
-      <div class="mhead"><span id="rvReviewDate">—</span></div>
-      <div class="mtrack"><i class="mfill" id="rvReviewMeter" style="width:0%"></i></div>
-    </div>
-    <p class="note" id="rvFraming"></p>
+<div id="v-review" style="display:none" role="tabpanel" aria-labelledby="tab-review">
+
+  <!-- Scope is a control strip, not a card. It used to be a full card
+       ABOVE the finding, which put the filters higher in the hierarchy
+       than the answer they scope. -->
+  <div class="filters" style="margin-top:14px">
+    <select onchange="setWindow(this.value)" aria-label="Time window">
+      <option value="28">Last 4 weeks</option>
+      <option value="56" selected>Last 8 weeks</option>
+      <option value="84">Last 12 weeks</option>
+      <option value="365">Last year</option>
+    </select>
+    <select onchange="setDayFilter(this.value)" aria-label="Day filter">
+      <option value="all">All days</option>
+      <option value="weekdays">Weekdays only</option>
+      <option value="weekends">Weekends only</option>
+    </select>
+    <button onclick="toggleReviewTable()"><span id="rvToggle">Show table</span></button>
   </div>
+  <p class="note" style="margin-top:8px"><b class="m" id="rvCoverage">—</b> — every percentage below is read against this.</p>
 
   <div id="rvCharts">
     <div class="card">
       <h2>What's actually getting ticked</h2>
-      <div class="hero" style="padding-top:0">
-        <div class="heronum" id="rvLead" style="font-size:40px">—</div>
-        <div><div class="herolab" id="rvLeadLabel"></div></div>
+      <div class="figure">
+        <div class="fn" id="rvLead">—</div>
+        <div><div class="fl" id="rvLeadLabel"></div></div>
       </div>
       <div class="chart" id="chTriage"></div>
-      <div id="triageRows" style="margin-top:10px"></div>
+      <div id="triageRows" style="margin-top:12px"></div>
       <p class="note" id="rvTriageSub"></p>
     </div>
 
@@ -596,6 +838,13 @@
       <div class="scrolly"><table><thead><tr><th>Day</th><th>What got in the way</th><th>Missed</th></tr></thead>
         <tbody id="noteRows"></tbody></table></div>
     </div>
+
+    <div class="card">
+      <h2>Review date</h2>
+      <div class="mhead"><span id="rvReviewDate">—</span></div>
+      <div class="mtrack"><i class="mfill" id="rvReviewMeter" style="width:0%"></i></div>
+      <p class="why" id="rvFraming"></p>
+    </div>
   </div>
 
   <div id="rvTable" style="display:none">
@@ -605,7 +854,7 @@
         <thead><tr><th>Day</th><th>Wake</th><th>Light</th><th>Train</th><th>Caff</th><th>Block</th><th>Log</th>
           <th>Woke</th><th>Bed</th><th>Sleep</th><th>Session</th><th>2nd</th><th>Run</th><th>Social</th><th>Protein</th><th>Note</th></tr></thead>
         <tbody id="twinBody"></tbody></table></div>
-      <div class="btnrow" style="margin-top:12px">
+      <div class="btnrow" style="margin-top:14px">
         <button onclick="downloadCSV()">Download CSV</button>
         <button onclick="openGist()">Open gist</button>
       </div>
@@ -615,14 +864,14 @@
 
   <div class="card">
     <h2>What this view refuses to do</h2>
-    <p class="note">No composite score, no outcome metrics, no correlations between the ten binaries
+    <p class="why" style="margin-top:0">No composite score, no outcome metrics, no correlations between the ten binaries
       (45 pairwise comparisons at n=56 is a p-hacking machine), and no projections. Monitoring behaviour
       improves behaviour; monitoring outcomes improves outcomes. They do not cross over.</p>
   </div>
 </div>
 
 <!-- ======================= SETUP ======================= -->
-<div id="v-setup" style="display:none">
+<div id="v-setup" style="display:none" role="tabpanel" aria-labelledby="tab-setup">
   <div class="card">
     <h2>Programme</h2>
     <div class="grid g2">
@@ -637,7 +886,7 @@
       <div><label class="f" for="sHrMax">Max heart rate (bpm)</label>
         <input type="number" id="sHrMax" min="120" max="220" step="1" onchange="savePrefsFromSetup()"></div>
     </div>
-    <p class="note">Protein target: <b id="sProteinTarget">—</b></p>
+    <p class="note">Protein target: <b class="m" id="sProteinTarget">—</b></p>
     <p class="why" id="sProteinNote"></p>
     <p class="why" id="sHrNote"></p>
   </div>
@@ -648,13 +897,13 @@
       GitHub token once per device — each sync writes <code>focus-tracker-data.json</code> and
       <code>focus-log.csv</code> into a <strong>secret Gist</strong> on your account.
       Nothing is written to the public repo.</p>
-    <div class="grid g2" style="margin-top:12px">
+    <div class="grid g2" style="margin-top:14px">
       <div><label class="f" for="ghTok">GitHub token (Gists: Read and write)</label>
         <input type="password" id="ghTok" placeholder="github_pat_..." autocomplete="off"></div>
       <div><label class="f" for="ghGist">Gist ID</label>
         <input type="text" id="ghGist" placeholder="auto-created on first sync" autocomplete="off"></div>
     </div>
-    <div class="btnrow" style="margin-top:12px">
+    <div class="btnrow" style="margin-top:14px">
       <button class="primary" id="btnSync" onclick="syncNow()">Save token &amp; sync now</button>
       <button onclick="downloadCSV()">Download CSV</button>
       <button onclick="openGist()">Open gist</button>
@@ -663,7 +912,7 @@
       <button onclick="importData()">Restore from text</button>
       <button onclick="lockNow()">Lock</button>
     </div>
-    <div class="note" id="syncMsg" style="min-height:1.2em"></div>
+    <div class="note" id="syncMsg" style="min-height:1.2em" role="status"></div>
     <textarea id="ioBox" placeholder="Copy/restore text appears here." style="margin-top:10px"></textarea>
   </div>
 
@@ -672,7 +921,7 @@
     <p class="note" style="margin-top:0">FitNotes already holds every set you've lifted, so there is no
       reason to retype loads here. Import its CSV and the lift notepad fills itself, the set-per-muscle
       counts become real instead of estimated, and lift days get ticked automatically.</p>
-    <details open>
+    <details>
       <summary>Getting the file out of FitNotes</summary>
       <p class="why" style="margin-top:8px">In FitNotes: <b>overflow menu → Settings → Data →
         Spreadsheet Export → Save Export</b> (or <b>Share Export</b> to send it straight to Drive, Dropbox
@@ -683,19 +932,19 @@
         but nothing, including this app, can open it. It exists to restore FitNotes onto a new phone.
         The Spreadsheet Export is the separate feature, and it is an ordinary CSV you can see.</p>
     </details>
-    <div class="grid g2" style="margin-top:12px">
+    <div class="grid g2" style="margin-top:14px">
       <div><label class="f" for="fnFileIn">Choose the exported CSV</label>
         <input type="file" id="fnFileIn" accept=".csv,text/csv" onchange="fnFile(this)"></div>
       <div><label class="f" for="fnBox">…or paste its contents</label>
         <textarea id="fnBox" placeholder="Date,Exercise,Category,Weight,Weight Unit,Reps&#10;2026-07-27,Barbell Squat,Legs,100,kg,5"></textarea></div>
     </div>
-    <div class="btnrow" style="margin-top:10px">
+    <div class="btnrow" style="margin-top:12px">
       <button onclick="fnPastePreview()">Preview pasted text</button>
       <button class="primary" id="fnCommit" onclick="fnCommit()" disabled>Import</button>
       <button onclick="fnClear()">Clear imported lifts</button>
     </div>
     <div id="fnResult" class="fnresult"></div>
-    <div class="note" id="fnMsg" style="min-height:1.2em"></div>
+    <div class="note" id="fnMsg" style="min-height:1.2em" role="status"></div>
     <p class="why">Nothing is overwritten blindly: a day that already records a run keeps it and gains the
       lift as its second session, and your ticks, notes and times are never touched. Both the Android
       (<code>Weight</code> + <code>Weight&nbsp;Unit</code>) and iOS (<code>Weight&nbsp;(kg)</code>) column
@@ -716,24 +965,29 @@
 
   <div class="card">
     <h2>Also</h2>
-    <p class="note"><b>Creatine.</b> <span id="sCreatine"></span></p>
-    <p class="note"><b>Social.</b> <span id="sSocialNote"></span></p>
+    <p class="why"><b>Creatine.</b> <span id="sCreatine"></span></p>
+    <p class="why"><b>Social.</b> <span id="sSocialNote"></span></p>
   </div>
 
   <div class="card">
     <h2>Calibration</h2>
-    <p class="note" id="sCalibration"></p>
-    <p class="note" id="sNoBench"></p>
+    <p class="why" id="sCalibration"></p>
+    <p class="why" id="sNoBench"></p>
     <p class="note"><a href="https://github.com/hewentto/focustracker/blob/main/PLAN.md">The full plan, the programme, and the parked list</a>. Not medical advice.</p>
   </div>
 </div>
 
 </div><!-- /wrap -->
 
-<nav class="tabbar" role="tablist">
-  <button id="tab-today" onclick="go('today')"><span class="ti">✓</span>Today</button>
-  <button id="tab-programme" onclick="go('programme')"><span class="ti">▤</span>Programme</button>
-  <button id="tab-review" onclick="go('review')"><span class="ti">◱</span>Review</button>
+<nav class="tabbar" role="tablist" aria-label="Views">
+  <button id="tab-today" role="tab" onclick="go('today')">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-check"/></svg>Today</button>
+  <button id="tab-programme" role="tab" onclick="go('programme')">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-prog"/></svg>Programme</button>
+  <button id="tab-review" role="tab" onclick="go('review')">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-review"/></svg>Review</button>
+  <button id="tab-setup" role="tab" onclick="go('setup')">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-setup"/></svg>Setup</button>
 </nav>
 
 </div><!-- /app -->
@@ -741,10 +995,10 @@
 <!-- ?v= is the cache buster. There is no build step, so bump it in the same
      commit as any change to these files or browsers will keep serving the
      old copy for as long as their heuristic freshness lasts. -->
-<script src="gate.js?v=3"></script>
-<script src="programme.js?v=3"></script>
-<script src="fitnotes.js?v=3"></script>
-<script src="charts.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="gate.js?v=4"></script>
+<script src="programme.js?v=4"></script>
+<script src="fitnotes.js?v=4"></script>
+<script src="charts.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

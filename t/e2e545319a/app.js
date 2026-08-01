@@ -369,7 +369,12 @@ function applyRoute() {
 }
 
 /* ---------- day nav ---------- */
-function shiftDay(n) { CUR = addDays(CUR, n); loadDay(); render(); }
+/* Clamped at today. A day that has not happened cannot be ticked. */
+function shiftDay(n) {
+  const next = addDays(CUR, n), todayIso = isoDay(new Date());
+  CUR = next > todayIso ? todayIso : next;
+  loadDay(); render();
+}
 function goToday() { CUR = isoDay(new Date()); loadDay(); render(); }
 
 function save() {
@@ -557,31 +562,70 @@ function render() {
 /* ===== TODAY ===== */
 function renderToday() {
   const todayIso = isoDay(new Date());
-  setText("todayLabel", fmtDay(CUR) + (CUR === todayIso ? " · today" : ""));
   const r = DB[CUR];
   const hit = CORE3.filter(k => r && r[k]).length;
 
-  /* The hero is a READ-OUT, not a control. The six rows below are the
-     only place the record is written -- one state, one write target. */
+  /* Date nav. You cannot walk into the future: ticking a day that has
+     not happened is the one way to put a lie in the record, and the
+     rest of the app is built on not doing that. */
+  const away = CUR !== todayIso;
+  setText("todayLabel", fmtDay(CUR) + (away ? "" : " · today"));
+  const bt = el("btnToday");
+  if (bt) {
+    bt.classList.toggle("away", away);
+    bt.disabled = !away;
+    bt.setAttribute("aria-label", away ? "Back to today" : fmtDay(CUR) + ", today");
+  }
+  const nx = el("btnNextDay");
+  if (nx) nx.disabled = CUR >= todayIso;
+
+  /* THE LATCH -- a READ-OUT, not a control. The six rows below are the
+     only place the record is written: one state, one write target.
+     Bars are reused rather than rebuilt so the fill actually animates
+     when one closes. */
   setText("heroNum", hit + "/3");
   const segs = el("coreMeter");
   if (segs) {
-    segs.innerHTML = "";
-    CORE3.forEach(k => {
-      const s = document.createElement("div");
-      s.className = "seg" + (r && r[k] ? " on" : "");
-      const lab = document.createElement("span");
-      lab.textContent = NAMES[k];
-      s.appendChild(lab);
-      segs.appendChild(s);
+    if (segs.children.length !== CORE3.length) {
+      segs.innerHTML = "";
+      CORE3.forEach(() => segs.appendChild(document.createElement("div")));
+    }
+    CORE3.forEach((k, i) => {
+      segs.children[i].className = "bar" + (r && r[k] ? " on" : "");
     });
+    segs.setAttribute("aria-label",
+      "Core Three: " + hit + " of 3 closed — " +
+      CORE3.map(k => NAMES[k] + " " + (r && r[k] ? "done" : "open")).join(", "));
   }
+
   const left = CORE3.filter(k => !(r && r[k])).map(k => NAMES[k].toLowerCase());
   const others = ["caff", "block", "log"].filter(k => !(r && r[k])).length;
-  setText("heroSub", hit === 3
-    ? (others ? "Day counts. " + others + " optional still open." : "Day counts. All six in.")
-    : (left.length === 1 ? left[0][0].toUpperCase() + left[0].slice(1) + " is the one left."
-                         : left.length + " of the Core Three still open."));
+  const state = el("latchState");
+  if (state) state.classList.toggle("counts", hit === 3);
+  if (hit === 3) {
+    setText("heroSub", "Day counts.");
+    setText("heroRest", others ? others + " of the other three still open." : "All six in.");
+  } else {
+    const list = left.length === 1 ? left[0]
+      : left.slice(0, -1).join(", ") + " and " + left[left.length - 1];
+    setText("heroSub", list[0].toUpperCase() + list.slice(1) + " to go.");
+    setText("heroRest", hit ? hit + " of the Core Three done."
+                            : "The three that make a bad day count.");
+  }
+
+  /* The measurement sits ON the row it evidences. Before this, the
+     Garmin wake time backing tap 1 was hidden inside a collapsed panel. */
+  setText("mWake", r && r.wakeT ? r.wakeT : "");
+  const sess = r ? [r.trainType, r.train2].filter(Boolean) : [];
+  setText("mTrain", r && hasVal(r.runKm) ? (+r.runKm).toFixed(1) + " km"
+                  : sess.length ? sess.join(" + ") : "");
+  setText("mCaff", PREFS.cDose && PREFS.cTime ? PREFS.cDose + " mg · " + PREFS.cTime : "");
+
+  const hw = el("hdrWeek");
+  if (hw) {
+    const w = progWeek(todayIso);
+    hw.textContent = w ? "Week " + w + (w <= 16 ? " of 16" : "") : "";
+  }
 
   /* Missed twice: never on a day still in progress. Flagging "Trained"
      at 9am on a day you have not finished is manufacturing a failure. */
