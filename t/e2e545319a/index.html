@@ -404,6 +404,26 @@
   .chip.park{border-color:var(--st-serious);color:var(--park-text)}
   .parkbtn{margin-left:4px;padding:2px 7px;font-size:10px;border-radius:5px;
     text-transform:none;letter-spacing:0}
+  /* An annotation under the item name — days since the last miss, and the
+     breakdown of a break. Deliberately the quietest text in the row: no
+     status token, no hue, lighter than the name it sits under. The
+     days-since figure is the one number in this app that only goes up,
+     and putting it in the chip slot at chip weight would make it read as
+     a verdict and hand the app the streak counter it exists without. */
+  .tsub{display:block;font-weight:400;font-size:11px;color:var(--text-muted);
+    font-variant-numeric:tabular-nums;line-height:1.45;margin-top:2px}
+  /* A measurement, so it takes the measured face and tabular figures —
+     but text-primary, never a status colour. The length of a break is a
+     fact; whether it is bad enough to mean anything is what the verdict
+     below the rows is for, and only after 14 days. */
+  .bval{font-family:var(--font-measured);font-variant-numeric:tabular-nums;
+    font-size:12.5px;font-weight:700;color:var(--text-primary);white-space:nowrap}
+  /* Sub-block inside a card: the .card > h2 key one step down, so the
+     breaks block reads as part of the triage card and not as a card that
+     lost its border. The rule above it is the section break. */
+  .subhead{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-secondary);margin:0 0 4px;font-weight:700}
+  #rvBreaks{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-strong)}
   .unpark{display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:9px 0;border-top:1px solid var(--border);font-size:12.5px}
   .unpark:first-child{border-top:none}
@@ -851,7 +871,26 @@
         <span><b aria-hidden="true">▲</b>Lowest adherence — unmarked while every item clears 60%</span>
       </div>
       <div id="triageRows" style="margin-top:12px"></div>
+      <!-- Stays with the table it explains. #rvBreaks used to sit between
+           the two, which left this note describing rows a whole sub-block
+           away from it. -->
       <p class="note" id="rvTriageSub"></p>
+
+      <!-- Longest BREAK, never a streak. README and PLAN §1 both refuse
+           streak mechanics on the evidence (Lally 2010: a missed day
+           costs 0.29 automaticity points and nothing long-term), so what
+           is counted here is absence. Every node below is built by
+           renderBreaks() with createElement/textContent — charts.js:17-18
+           states that rule for the whole app. Empty in markup on
+           purpose: a placeholder number here would be read as a real one
+           for the frame before boot() runs. -->
+      <div id="rvBreaks">
+        <h3 class="subhead">Longest break</h3>
+        <div id="rvBreakRows"></div>
+        <div class="verdict" id="rvBreakVerdict" style="display:none"><div class="dot"></div>
+          <div><div class="vt" id="rvBrkT">—</div><div class="vd" id="rvBrkD">—</div></div></div>
+        <p class="note" id="rvBreaksWhy"></p>
+      </div>
     </div>
 
     <div class="card">
@@ -1067,10 +1106,10 @@
 <!-- ?v= is the cache buster. There is no build step, so bump it in the same
      commit as any change to these files or browsers will keep serving the
      old copy for as long as their heuristic freshness lasts. -->
-<script src="gate.js?v=6"></script>
-<script src="programme.js?v=6"></script>
-<script src="fitnotes.js?v=6"></script>
-<script src="charts.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="gate.js?v=7"></script>
+<script src="programme.js?v=7"></script>
+<script src="fitnotes.js?v=7"></script>
+<script src="charts.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

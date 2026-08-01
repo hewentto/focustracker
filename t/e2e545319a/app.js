@@ -1182,6 +1182,191 @@ function horizonLine() {
     HABIT_HORIZON.rangeHigh + " days. This number only goes up — a missed day does not reset it.";
 }
 
+/* ---------- longest break ----------
+   The one metric the prior-art survey endorsed, and the reason it is a
+   BREAK and not a streak. A streak counter's whole mechanism is the
+   reset, and the reset manufactures the failure Lally 2010 measured and
+   found absent: a missed day cost 0.29 automaticity points and had no
+   significant long-term effect. README and PLAN §1 both refuse streaks
+   on that evidence, so this must not smuggle one back in under a new
+   name. Hence: the number counts absence, it is allowed to be zero, and
+   nothing on this screen gets brighter as it improves.
+
+   What a break is worth reading for -- three days is a bad week and
+   means nothing. Twelve is a pattern, and a pattern has exactly two
+   readings: the environment made it hard, or the intention is gone.
+   Both are worth writing down. Neither is worth a scolding.
+
+   This generalises the missed-twice flag on Today rather than replacing
+   it. That one asks about the two days before now and fires live; this
+   one asks about a whole window and can only ever be history. */
+const BREAK_PATTERN_DAYS = 12;
+
+/* Unattested days are TRANSPARENT: dropped from the sequence outright,
+   neither a miss nor a reset. A Garmin-only record reads false on every
+   box because nobody was asked, so counting it as a miss invents misses
+   out of silence; counting it as a hit ends a run that never ended.
+   Dropping it is the only reading that adds no information we do not
+   have -- a day nobody answered cannot break a run and cannot extend
+   one.
+
+   That leaves two different true numbers, so both come back. `n` is
+   what was measured (attested missed days); `span` is the wall-clock
+   stretch those misses cover, ghosts included. Two misses either side
+   of one ghost day is 2 across 3 calendar days: the span is what the
+   calendar shows, the count is what is known.
+
+   Ranking is on `n` and only tie-broken on `span`. Ranking on span
+   first would let a long silence outrank a longer measured absence,
+   which is the ghost days voting on a question they were never asked. */
+function longestBreak(k, scope) {
+  let best = null, run = [];
+  function close() {
+    if (!run.length) return;
+    const cand = { n: run.length, from: run[0], to: run[run.length - 1],
+                   span: daysBetween(run[0], run[run.length - 1]) + 1 };
+    if (!best || cand.n > best.n || (cand.n === best.n && cand.span > best.span)) best = cand;
+    run = [];
+  }
+  scope.forEach(d => { if (DB[d][k]) close(); else run.push(d); });
+  close();
+  /* Censored left: when the oldest attested day in scope is itself a
+     miss, the run holding it began before the window and there is no way
+     to see how far back. That makes EVERY number here a floor -- including
+     an interior run that happens to be the longest visible one, because
+     the invisible leading run could be longer than all of them. Flagging
+     only a run starting at index 0 would print a bare 5 over a break that
+     might be fifty. */
+  const censored = scope.length > 0 && !DB[scope[0]][k];
+  return best ? { n: best.n, span: best.span, from: best.from, to: best.to, censored: censored }
+              : { n: 0, span: 0, from: "", to: "", censored: false };
+}
+
+/* The span leads, because it is the stretch the calendar actually shows
+   and the one a reader can check against their own memory. The `+` rides
+   the headline alone: repeating it on the attested count would claim the
+   count is a floor in the same way, and it is not -- the ghost days
+   inside a censored run are still ghosts either way. */
+function breakHeadline(b) {
+  if (!b.n) return "none";
+  return b.span + (b.censored ? "+" : "") + (b.span === 1 ? " day" : " days");
+}
+function breakDetail(b, ref) {
+  if (!b.n) return "no attested miss in this window";
+  const misses = b.n + " attested " + (b.n === 1 ? "miss" : "misses");
+  const out = [b.n === b.span ? misses : misses + " across " + b.span + " calendar days"];
+  out.push(b.from === b.to ? fmtSrcDay(b.to, ref)
+                           : fmtSrcDay(b.from, ref) + " – " + fmtSrcDay(b.to, ref));
+  /* Phrased about the NUMBER, not about this run. When the longest visible
+     run is an interior one, the caveat is still true and still about it --
+     the unseen run at the window edge could be longer than anything here.
+     "starts at the window edge" would have been a lie on exactly that
+     case, which is the case the + exists for. */
+  if (b.censored) out.push("may run longer — the window opens on a miss");
+  return out.join(" · ");
+}
+
+/* Days since the last attested miss. This is the slot a streak counter
+   would have occupied, so it is deliberately built to be unable to
+   become one: it is a statement about a date, it carries no colour, no
+   icon and no superlative, and nothing anywhere in the app reacts when
+   it grows. The number is the same number a streak would show; what
+   makes a streak a streak is the reward, and there is none here.
+   `scope` is guaranteed to stop before today, so the count is never
+   measured against a day still in progress. */
+function sinceMissLabel(k, scope, todayIso) {
+  for (let i = scope.length - 1; i >= 0; i--) {
+    if (!DB[scope[i]][k]) {
+      const n = daysBetween(scope[i], todayIso);
+      return n === 1 ? "1 day since a miss" : n + " days since a miss";
+    }
+  }
+  return scope.length ? "no miss in this window" : "";
+}
+
+/* Six daily items only. The weekly targets (Lifts ≥3/wk and friends) are
+   scored per calendar week, so "a day it was not ticked" is not a state
+   they have -- printing a 40-day break against a weekly row would be
+   counting days it was never measured on. */
+function renderBreaks(scope, todayIso, logged, enough) {
+  const box = el("rvBreakRows"), v = el("rvBreakVerdict");
+  if (!box || !v) return;
+  box.textContent = "";
+  v.style.display = "none";
+
+  /* Gated hard on the unfiltered window. dayPlan() returns `rest` for
+     Sat and Sun, so under "Weekends only" a 56-day window offers ~16
+     days on which `train` is never ticked and every one of them is
+     correct behaviour -- the block would print a 16-day break against a
+     programme followed exactly as written. "Weekdays only" is the same
+     defect quieter: dropping two days a week fuses Friday to Monday, so
+     every calendar span becomes a lie about the calendar. One
+     explanatory line beats a confident wrong number. */
+  if (DAYFILTER !== "all") {
+    setText("rvBreaksWhy", "Breaks are counted on All days only. A day filter hides the days " +
+      "between the ones it keeps, and the programme prescribes rest at the weekend — so under a " +
+      "filter “Trained” shows a long break on a programme followed exactly. Switch the day " +
+      "filter back to All days to see them.");
+    return;
+  }
+  if (!scope.length) {
+    setText("rvBreaksWhy", "No answered day before today in this window, so there is nothing yet " +
+      "to measure a break against.");
+    return;
+  }
+
+  const items = KEYS.filter(k => !isParked(k))
+    .map(k => ({ name: NAMES[k], b: longestBreak(k, scope) }));
+  const censored = items.some(it => it.b.censored);
+
+  items.forEach(it => {
+    const div = document.createElement("div"); div.className = "trow";
+    const nm = document.createElement("span"); nm.className = "tname";
+    nm.appendChild(document.createTextNode(it.name));
+    const sub = document.createElement("span"); sub.className = "tsub";
+    sub.textContent = breakDetail(it.b, todayIso);
+    nm.appendChild(sub);
+    const val = document.createElement("b"); val.className = "bval";
+    val.textContent = breakHeadline(it.b);
+    div.appendChild(nm); div.appendChild(val);
+    box.appendChild(div);
+  });
+
+  /* The + legend prints only when a + is on screen, for the same reason
+     the heat legend does not name the future-day state: a key for a
+     condition the reader cannot see costs width on a 375px phone and
+     sends them hunting for it. */
+  let why = "The longest run of days you answered and did not tick it. Days nobody answered are " +
+    "dropped from the run rather than counted as misses — a synced-only record reads false on " +
+    "every box because no one was asked. Three days is a bad week; " + BREAK_PATTERN_DAYS +
+    " is a pattern.";
+  if (censored) why += " A + means the oldest answered day in the window is itself a miss, so " +
+    "that run began before the window and every number here is a floor, not a total.";
+  if (!enough) why += " Verdicts wait for 14 days in the record, the same threshold the table " +
+    "above uses — " + logged.length + " so far.";
+  setText("rvBreaksWhy", why);
+
+  /* Judgement waits for the same 14 days as every other verdict on this
+     tab, and fires on the ATTESTED count, not the calendar span.
+     Thresholding on the span would let a stretch of days nobody answered
+     push an item over the line -- silence promoted to evidence, which is
+     the precise failure attested() exists to prevent. The span still
+     leads each row, because that part is a description and this part is
+     a verdict. */
+  const flagged = items.filter(it => it.b.n >= BREAK_PATTERN_DAYS);
+  if (!enough || !flagged.length) return;
+  v.style.display = "flex";
+  v.className = "verdict v-warn";
+  setText("rvBrkT", "A pattern, not a bad week");
+  setText("rvBrkD",
+    flagged.map(it => it.name + ": " + breakHeadline(it.b) + ", ending " +
+      fmtSrcDay(it.b.to, todayIso)).join(". ") +
+    ". A missed day costs 0.29 automaticity points and nothing long-term (Lally 2010), which is " +
+    "why three days gets no verdict here. " + BREAK_PATTERN_DAYS + " is long enough to have a " +
+    "cause, and there are two: the environment made it hard, or this stopped being something you " +
+    "intend to do. Which one it was is worth a note, on the day it started.");
+}
+
 /* ===== REVIEW ===== */
 function renderReview() {
   const days = filteredDays(), todayIso = isoDay(new Date());
@@ -1194,6 +1379,17 @@ function renderReview() {
      records unasked. */
   const logged = past.filter(d => attested(DB[d]));
   const ghost = past.filter(d => DB[d] && !attested(DB[d]));
+  /* Break scope: attested days STRICTLY before today, oldest first.
+     Today is dropped for the same reason missed-twice drops it -- a box
+     not yet ticked at 9am on a day still running is not a miss, and
+     counting it as one manufactures a failure. `logged` keeps today
+     because coverage is a claim about records, not about misses. */
+  const breakScope = logged.filter(d => d < todayIso);
+  /* Both the break block and the days-since figure are unfiltered-only,
+     for one reason: a day filter hides the days between the ones it
+     keeps, so any run or gap measured across them describes a calendar
+     that does not exist. renderBreaks() prints the explanation. */
+  const breaksOn = DAYFILTER === "all";
   setText("rvCoverage", logged.length + " of " + past.length + " days in the record (" +
     (past.length ? Math.round(logged.length / past.length * 100) : 0) + "%)" +
     (ghost.length ? " · " + ghost.length + " more hold synced data only" : ""));
@@ -1217,7 +1413,8 @@ function renderReview() {
     if (isParked(k)) return;
     const poss = logged.length, hitN = logged.filter(d => DB[d][k]).length;
     rows.push({ key: k, name: NAMES[k], core: CORE3.indexOf(k) >= 0,
-      hit: hitN, poss: poss, rate: poss ? hitN / poss : 0 });
+      hit: hitN, poss: poss, rate: poss ? hitN / poss : 0,
+      since: breaksOn ? sinceMissLabel(k, breakScope, todayIso) : "" });
   });
   const weeks = {};
   past.forEach(d => { const w = weekOf(d)[0]; (weeks[w] = weeks[w] || []).push(d); });
@@ -1257,6 +1454,15 @@ function renderReview() {
     const nm = document.createElement("span"); nm.className = "tname";
     if (r.core) { const dot = document.createElement("i"); dot.className = "core-dot"; nm.appendChild(dot); }
     nm.appendChild(document.createTextNode(r.name));
+    /* Days since the last miss goes UNDER the name, never in the chip
+       slot. A number that only goes up must not sit where the verdict
+       sits, or the eye reads it as one and the app has grown the streak
+       counter it exists without. Undefined on the weekly rows, which
+       have no per-day miss to date from. */
+    if (r.since) {
+      const s = document.createElement("span"); s.className = "tsub";
+      s.textContent = r.since; nm.appendChild(s);
+    }
     const chip = document.createElement("span");
     if (enough) {
       const v = r.rate >= 0.7 ? "keep" : r.rate >= 0.4 ? "watch" : "park";
@@ -1286,6 +1492,7 @@ function renderReview() {
     ? "Sorted in fixed order, never re-ranked under you. In the chart ▲ marks the single lowest item — the park candidate, not a verdict."
     : "Verdicts are suppressed until 14 days are in the record. Median habit formation is 66 days; judging an item at day " +
       logged.length + " would be noise.");
+  renderBreaks(breakScope, todayIso, logged, enough);
 
   /* wake diagnosis stats */
   const wakes = past.filter(d => DB[d] && DB[d].wakeT).map(d => mins(DB[d].wakeT)).sort((a, b) => a - b);
