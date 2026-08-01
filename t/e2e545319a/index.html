@@ -738,10 +738,13 @@
 
 </div><!-- /app -->
 
-<script src="gate.js"></script>
-<script src="programme.js"></script>
-<script src="fitnotes.js"></script>
-<script src="charts.js"></script>
-<script src="app.js"></script>
+<!-- ?v= is the cache buster. There is no build step, so bump it in the same
+     commit as any change to these files or browsers will keep serving the
+     old copy for as long as their heuristic freshness lasts. -->
+<script src="gate.js?v=3"></script>
+<script src="programme.js?v=3"></script>
+<script src="fitnotes.js?v=3"></script>
+<script src="charts.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

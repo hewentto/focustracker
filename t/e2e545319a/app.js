@@ -161,7 +161,12 @@ function fnFile(input) {
 }
 function fnPastePreview() { fnPreview(el("fnBox").value); }
 
+/* Accepts either the FitNotes CSV export or the richer JSON emitted by
+   sync/fitnotes_db.py, which carries PR flags and the routine the CSV
+   throws away. Detected by shape, not by asking. */
 function fnPreview(text) {
+  const raw = String(text || "").trim();
+  if (raw.charAt(0) === "{") return fnPreviewJSON(raw);
   const p = parseFitNotes(text);
   FN_PENDING = p.ok ? p : null;
   const box = el("fnResult");
@@ -189,9 +194,76 @@ function fnSay(t, bad) {
   n.textContent = t || ""; n.className = "note" + (bad ? " bad" : "");
 }
 
+function fnPreviewJSON(raw) {
+  const box = el("fnResult"); box.innerHTML = "";
+  let o = null;
+  try { o = JSON.parse(raw); } catch (e) { o = null; }
+  if (!o || o.source !== "fitnotes-db" || !o.lifts) {
+    FN_PENDING = null; el("fnCommit").disabled = true;
+    fnSay("That JSON isn't from sync/fitnotes_db.py — expected a fitnotes-db document.", true);
+    return;
+  }
+  FN_PENDING = { json: o };
+  const t = o.totals || {};
+  const known = Object.keys(o.lifts).filter(d => DB[d]).length;
+  const lines = [
+    (t.sets || 0) + " sets over " + (t.days || 0) + " days · " + (t.exercises || 0) +
+      " exercises · " + (t.prs || 0) + " personal records",
+    (o.range && o.range.from ? o.range.from + " → " + o.range.to : ""),
+    "weights shown in " + (o.displayUnit === "kg" ? "kilograms" : "pounds") + ", as FitNotes has them",
+    known + " of those days already exist here and will be updated, not replaced",
+  ];
+  if (o.routine) {
+    const d = o.routine.days || {};
+    const n = ["0", "1", "2", "3", "4", "5", "6"].filter(k => d[k]).length;
+    lines.push("routine “" + o.routine.name + "” — " + n + " scheduled days, which will replace the built-in template");
+  }
+  lines.filter(Boolean).forEach(x => {
+    const n = document.createElement("div"); n.textContent = x; box.appendChild(n);
+  });
+  if (o.userVersion && o.userVersion !== 22) {
+    const w = document.createElement("div"); w.className = "fnwarn";
+    w.textContent = "⚠ FitNotes schema version " + o.userVersion +
+      " — the parser was written against 22. Check the numbers before trusting them.";
+    box.appendChild(w);
+  }
+  el("fnCommit").disabled = false;
+  fnSay("");
+}
+
+function fnCommitJSON(o) {
+  let marked = 0;
+  Object.keys(o.lifts).forEach(iso => {
+    LIFTS[iso] = o.lifts[iso];
+    if (!fitnotesIsLiftDay(o.lifts[iso])) return;
+    const before = DB[iso] ? Object.assign({}, DB[iso]) : null;
+    if (!DB[iso]) DB[iso] = blank();
+    const r = DB[iso];
+    r.train = true;
+    if (!r.trainType) r.trainType = "lift";
+    else if (r.trainType !== "lift" && !r.train2) r.train2 = "lift";
+    r._u = Date.now();
+    markDirty(iso, before, r);
+    marked++;
+  });
+  PREFS.loads = o.loads || {};
+  PREFS.unit = o.displayUnit === "kg" ? "kg" : "lb";
+  if (o.routine) PREFS.routine = o.routine;
+  saveLifts(); persist(); savePrefs(); render();
+  FN_PENDING = null;
+  el("fnCommit").disabled = true;
+  el("fnBox").value = "";
+  fnSay("Imported " + marked + " training days, " +
+    Object.keys(PREFS.loads).length + " exercise loads and " +
+    ((o.totals && o.totals.prs) || 0) + " personal records" +
+    (o.routine ? ", plus the “" + o.routine.name + "” routine." : "."));
+}
+
 function fnCommit() {
   const p = FN_PENDING;
-  if (!p || !p.ok) return;
+  if (!p) return;
+  if (p.json) return fnCommitJSON(p.json);
+  if (!p.ok) return;
   let marked = 0;
   Object.keys(p.days).forEach(iso => {
     LIFTS[iso] = p.days[iso];
@@ -373,9 +445,46 @@ function progWeek(iso) {
   if (n < 0) return null;
   return Math.floor(n / 7) + 1;
 }
+/* Your imported routine wins over the built-in A/B template. PLAN §3's
+   EVIDENCE still applies -- the 8–12 sets/muscle/week band, RIR 2, the
+   progression rule -- but the prescription is the split you actually run,
+   not one you don't. */
+function routineDay(iso) {
+  const r = PREFS.routine;
+  if (!r || !r.days) return null;
+  return r.days[String(dayFromIso(iso).getDay())] || null;
+}
+function unitLabel() { return PREFS.unit === "kg" ? "kg" : "lb"; }
+/* Stored weights are always kg; FitNotes converts for display. Round to the
+   nearest half unit so a 135 lb lift that round-tripped through kg reads
+   "135 lb" and not "135.0" or "134.9". */
+function showWeight(kg) {
+  if (kg === null || kg === undefined || kg === "") return "";
+  const n = +kg; if (!isFinite(n)) return "";
+  if (!n) return "bodyweight";
+  let v = PREFS.unit === "kg" ? n : n / 0.45359237;
+  v = Math.round(v * 2) / 2;
+  return (v % 1 === 0 ? String(v) : v.toFixed(1)) + " " + unitLabel();
+}
+function loadText(name) {
+  const l = PREFS.loads && PREFS.loads[name];
+  if (!l) return "";
+  if (typeof l === "string") return l;            /* legacy CSV import */
+  return showWeight(l.kg) + " × " + l.reps;
+}
+
 function dayPlan(iso) {
   const dow = dayFromIso(iso).getDay();       /* 0 Sun .. 6 Sat */
   const wk = progWeek(iso);
+  const rd = routineDay(iso);
+  if (rd) {
+    return { kind: "lift", week: wk, routine: rd, template: null,
+      detail: rd.section + " — " + rd.exercises.length + " exercises, " +
+        rd.exercises.reduce((a, e) => a + (e.sets || 0), 0) + " sets." };
+  }
+  if (PREFS.routine) {                        /* routine exists, nothing today */
+    return { kind: "rest", week: wk, detail: "Rest. Nothing prescribed today." };
+  }
   if (dow === 2 || dow === 4) {               /* Tue / Thu = run */
     const w = wk && wk >= 1 && wk <= RUN_WEEKS.length ? RUN_WEEKS[wk - 1] : null;
     return { kind: "run", week: wk,
@@ -581,7 +690,43 @@ function renderProgramme() {
   box.appendChild(d);
   if (plan.note) { const n = document.createElement("p"); n.className = "why"; n.textContent = plan.note; box.appendChild(n); }
 
-  if (plan.kind === "lift" && plan.template) {
+  /* --- your own routine, when one has been imported --- */
+  if (plan.kind === "lift" && plan.routine) {
+    const tbl = document.createElement("table"); tbl.className = "lift";
+    const hd = document.createElement("tr");
+    ["Exercise", "Sets × reps", "Last load", ""].forEach(x => {
+      const th = document.createElement("th"); th.textContent = x; hd.appendChild(th);
+    });
+    tbl.appendChild(hd);
+    /* Has this exercise ever been logged? A prescribed lift you have never
+       once done is the most useful thing this table can tell you. */
+    const everLogged = {};
+    Object.keys(LIFTS).forEach(d => (LIFTS[d].exercises || []).forEach(e => {
+      if (e.sets && e.sets.length) everLogged[e.name] = 1;
+    }));
+    plan.routine.exercises.forEach(row => {
+      const tr = document.createElement("tr");
+      const c1 = document.createElement("td");
+      c1.textContent = row.name; c1.className = "rowh";
+      const c2 = document.createElement("td");
+      const reps = row.reps && row.reps.length ? row.reps[0] : null;
+      c2.textContent = row.sets ? (row.sets + " × " + (reps === null ? "?" : reps)) : "—";
+      const c3 = document.createElement("td");
+      c3.textContent = loadText(row.name) || "—";
+      const c4 = document.createElement("td");
+      if (!everLogged[row.name]) {
+        c4.innerHTML = '<span class="chip park">never logged</span>';
+      }
+      [c1, c2, c3, c4].forEach(c => tr.appendChild(c));
+      tbl.appendChild(tr);
+    });
+    box.appendChild(tbl);
+    const done = plan.routine.exercises.filter(e => everLogged[e.name]).length;
+    const p = document.createElement("p"); p.className = "why";
+    p.textContent = done + " of " + plan.routine.exercises.length +
+      " of these have ever been logged. " + LIFT_PROGRESSION;
+    box.appendChild(p);
+  } else if (plan.kind === "lift" && plan.template) {
     const tbl = document.createElement("table"); tbl.className = "lift";
     const hd = document.createElement("tr");
     ["Exercise", "Sets × reps", "RIR", "Last load"].forEach(x => {
@@ -622,8 +767,8 @@ function renderProgramme() {
       tbl.appendChild(tr);
     });
     box.appendChild(tbl);
-    const p = document.createElement("p"); p.className = "why"; p.textContent = LIFT_PROGRESSION;
-    box.appendChild(p);
+    const pr = document.createElement("p"); pr.className = "why"; pr.textContent = LIFT_PROGRESSION;
+    box.appendChild(pr);
   }
 
   if (plan.kind === "run") {
@@ -718,10 +863,35 @@ function renderProgramme() {
         const li = document.createElement("li");
         const top = ex.sets.reduce((a, s) => (s.kg > a.kg ? s : a), ex.sets[0]);
         li.textContent = ex.name + " — " + fnPlural(ex.sets.length, "set") + ", top " +
-          (top.kg ? top.kg + " kg × " + top.reps : "bodyweight × " + top.reps);
+          showWeight(top.kg) + " × " + top.reps +
+          (ex.sets.some(s => s.pr) ? "  ★ PR" : "");
         ul.appendChild(li);
       });
       fnBox.appendChild(ul);
+    }
+
+    /* The prescribed-vs-executed gap, per routine day. This is the number
+       that says "your programme is fine, Tuesdays aren't happening". */
+    if (PREFS.routine && PREFS.routine.days) {
+      const everLogged = {};
+      Object.keys(LIFTS).forEach(dd => (LIFTS[dd].exercises || []).forEach(e => {
+        if (e.sets && e.sets.length) everLogged[e.name] = 1;
+      }));
+      const h2 = document.createElement("p"); h2.className = "note";
+      h2.textContent = "“" + PREFS.routine.name + "” — how much of each day you actually run:";
+      fnBox.appendChild(h2);
+      ["1", "2", "3", "4", "5", "6", "0"].forEach(k => {
+        const day = PREFS.routine.days[k]; if (!day) return;
+        const done = day.exercises.filter(e => everLogged[e.name]).length;
+        const row = document.createElement("div");
+        meterInto(row, day.section, done + "/" + day.exercises.length,
+          day.exercises.length ? done / day.exercises.length : 0);
+        fnBox.appendChild(row);
+      });
+      const n2 = document.createElement("p"); n2.className = "why";
+      n2.textContent = "Ever-logged, not this week — a day sitting near zero is a day " +
+        "that has never really happened, which is a different problem from a bad week.";
+      fnBox.appendChild(n2);
     }
   }
 
