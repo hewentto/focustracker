@@ -11,6 +11,13 @@ venv/
 .garminconnect/
 *.garth
 
+# Personal health exports. A .fitnotes backup carries bodyweight, body-fat
+# and measurement history, not just lift numbers -- and this repo is public.
+# Working copies live in private/ and never get committed.
+private/
+*.fitnotes
+FitNotes*.csv
+
 # Editor / OS noise
 .DS_Store
 Thumbs.db
