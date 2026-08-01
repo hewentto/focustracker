@@ -145,17 +145,54 @@ function attested(r) {
                  ["note", "liftTpl", "focus", "skipped"].some(f => hasVal(r[f])));
 }
 
+/* Latched the moment any write is refused -- a full disk, Safari private
+   mode, storage blocked outright. Read by persist() and renderToday().
+   Only a successful persist() clears it, because the whole day record
+   landing is the evidence the store is usable again. */
+let STORAGE_FAILED = false;
+/* What navigator.storage.persist() answered at boot. Advisory. */
+let STORAGE_PERSISTED = null;
+
 function lsGet(k, f) { try { const v = localStorage.getItem(k); return v === null ? f : v; } catch (e) { return f; } }
-function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+/* Reports whether the value actually reached the disk. The old body
+   swallowed QuotaExceededError, so persist() printed "saved" over a write
+   that never happened -- a tap that looked recorded and was not, in an app
+   whose only claim is an honest record. Callers that ignore the return
+   behave exactly as before. */
+function lsSet(k, v) {
+  try { localStorage.setItem(k, v); return true; }
+  catch (e) { STORAGE_FAILED = true; return false; }
+}
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
+/* WebKit's ITP evicts script-writable storage after seven days of Safari
+   use without interaction, and the Review tab gets opened about six times
+   a year -- so the log can be evicted between two visits that both felt
+   normal. A persisted bucket is exempt. Advisory only: a false answer is
+   not worth alarming anyone with, and boot must not wait on the promise. */
+function askPersistentStorage() {
+  if (!navigator.storage || typeof navigator.storage.persist !== "function") return;
+  try {
+    navigator.storage.persist().then(g => { STORAGE_PERSISTED = !!g; },
+                                     () => { STORAGE_PERSISTED = false; });
+  } catch (e) { STORAGE_PERSISTED = false; }
+}
+
 function persist() {
-  lsSet(LS_DATA, JSON.stringify(DB));
+  const ok = lsSet(LS_DATA, JSON.stringify(DB));
+  if (ok) STORAGE_FAILED = false;
   const p = el("savePill");
   if (p) {
-    p.textContent = "saved " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    p.className = "pill ok";
+    /* The word carries the state, not the border colour: .pill.err is a
+       hue and a hairline, and neither survives a glance in morning sun. */
+    p.textContent = ok
+      ? "saved " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "NOT SAVED";
+    p.className = ok ? "pill ok" : "pill err";
   }
+  /* The record is still whole in memory. Push it somewhere with room
+     before the tab closes and takes it. */
+  if (!ok) forcePush();
 }
 function loadLocal() { try { DB = prune(JSON.parse(lsGet(LS_DATA, "{}")) || {}); } catch (e) { DB = {}; } }
 function loadLifts() {
@@ -345,8 +382,23 @@ function targetFor(iso) {
 function isParked(k) { return !!PREFS.parked[k]; }
 
 /* ---------- unsynced-edit tracking ---------- */
-function loadDirty() { try { return JSON.parse(lsGet(LS_DIRTY, "{}")) || {}; } catch (e) { return {}; } }
-function saveDirty(d) { lsSet(LS_DIRTY, JSON.stringify(d)); }
+/* The in-memory copy is the authority. Re-reading the store after a
+   refused write hands back the list from before the tap, so the field just
+   edited stops counting as unsynced and the merge overlay drops it on the
+   next pull -- the failed save would take the edit twice.
+   Callers get a copy, not the live object: syncNow holds one across the
+   PATCH await as the snapshot it will later drop, and a tap made during
+   that flight must not be dropped along with it. */
+let DIRTY_MEM = null;
+function loadDirty() {
+  if (!DIRTY_MEM) {
+    try { DIRTY_MEM = JSON.parse(lsGet(LS_DIRTY, "{}")) || {}; } catch (e) { DIRTY_MEM = {}; }
+  }
+  const out = {};
+  Object.keys(DIRTY_MEM).forEach(day => { out[day] = DIRTY_MEM[day].slice(); });
+  return out;
+}
+function saveDirty(d) { DIRTY_MEM = d; lsSet(LS_DIRTY, JSON.stringify(d)); }
 function markDirty(day, before, after) {
   const d = loadDirty(), set = {}, base = before || blank();
   (d[day] || []).forEach(f => set[f] = 1);
@@ -670,9 +722,23 @@ function renderToday() {
   const yest = addDays(todayIso, -1), yest2 = addDays(todayIso, -2);
   const liveFlags = KEYS.filter(k => !isParked(k) &&
     attested(DB[yest]) && attested(DB[yest2]) && !DB[yest][k] && !DB[yest2][k]).map(k => NAMES[k]);
+  /* One callout at a time, and the storage one always wins. Both sit in the
+     same slot above the taps; stacked they compete, and a warning that
+     yesterday's tick is missing is worth nothing next to the news that
+     today's tick is not on the disk. */
+  const sw = el("storageWarn");
+  if (sw) {
+    sw.style.display = STORAGE_FAILED ? "flex" : "none";
+    if (STORAGE_FAILED) {
+      setText("storageWarnText", "this device refused the write, so the newest changes exist " +
+        "only in this tab — closing it loses them. " +
+        (tokVal() && gidVal() ? "A push to your gist was forced so they survive anyway. " : "") +
+        "Free some space, or take a copy with Download CSV in Setup.");
+    }
+  }
   const fb = el("missedTwice");
   if (fb) {
-    if (liveFlags.length) {
+    if (liveFlags.length && !STORAGE_FAILED) {
       fb.style.display = "flex";
       setText("missedTwiceText", liveFlags.join(", ") + " missed two days running");
     } else fb.style.display = "none";
@@ -1365,20 +1431,55 @@ function gistPayload() {
   return { [GIST_FILE]: { content: JSON.stringify(body, null, 1) },
            [CSV_FILE]: { content: toCSV() } };
 }
+/* Mirrors of the two credentials, because lsGet cannot be trusted in the
+   one state the forced push exists for: when storage is unavailable it
+   returns the fallback, the gate below reads the token as absent, and the
+   mitigation is dead code exactly when it is needed. Hydrated lazily from
+   the store and written on every set, so within a session they are never
+   staler than the disk. */
+let TOK_MEM = "", GID_MEM = "";
+function tokVal() { if (!TOK_MEM) TOK_MEM = lsGet(LS_TOK, ""); return TOK_MEM; }
+function gidVal() { if (!GID_MEM) GID_MEM = lsGet(LS_GIST, ""); return GID_MEM; }
+
+/* persist() -> forcePush() -> syncNow() -> persist() is a loop. The flag
+   breaks the recursion; the 30s window stops a user tapping repeatedly
+   against a full disk from spraying PATCHes at GitHub. */
+let SYNC_INFLIGHT = false, LAST_FORCE = 0;
+const FORCE_MS = 30000;
+function forcePush() {
+  if (SYNC_INFLIGHT) return;
+  const now = Date.now();
+  if (now - LAST_FORCE < FORCE_MS) return;
+  if (!tokVal() || !gidVal()) return;
+  LAST_FORCE = now;              /* claim the window BEFORE the call, or the
+                                    re-entry from syncNow's persist() sees
+                                    an unclaimed one and pushes again */
+  clearTimeout(syncTimer);       /* the queued sync would only repeat this */
+  syncNow(true);
+}
 function queueSync() {
-  if (!lsGet(LS_TOK, "") || !lsGet(LS_GIST, "")) return;
+  if (!tokVal() || !gidVal()) return;
+  /* While writes are failing, forcePush is already pushing under the brake.
+     Re-arming the 4s debounce on top of it doubles every PATCH and puts the
+     brake back where it started. */
+  if (STORAGE_FAILED && Date.now() - LAST_FORCE < FORCE_MS) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => syncNow(true), 4000);
 }
 async function syncNow(quiet) {
+  if (SYNC_INFLIGHT) return;
   const tokIn = el("ghTok").value.trim(), gidIn = el("ghGist").value.trim();
-  if (tokIn) { lsSet(LS_TOK, tokIn); el("ghTok").value = ""; }
-  if (gidIn) { lsSet(LS_GIST, gidIn); }
-  const tok = lsGet(LS_TOK, ""); let gid = lsGet(LS_GIST, "");
+  /* Clear the field only once the token is on the disk. Clearing it after a
+     refused write leaves a password box that looks accepted and a token
+     that will not survive the reload. */
+  if (tokIn) { TOK_MEM = tokIn; if (lsSet(LS_TOK, tokIn)) el("ghTok").value = ""; }
+  if (gidIn) { GID_MEM = gidIn; lsSet(LS_GIST, gidIn); }
+  const tok = tokVal(); let gid = gidVal();
   if (!tok) { setPill("syncPill", "not configured", ""); msg("Paste a token first, or keep local-only saving plus Download CSV."); return; }
 
   setPill("syncPill", "syncing…", "busy"); if (!quiet) msg("");
   el("btnSync").disabled = true;
+  SYNC_INFLIGHT = true;
   try {
     if (gid) {
       const g = await gh("/gists/" + gid, null, tok);
@@ -1428,23 +1529,26 @@ async function syncNow(quiet) {
         description: "Building the Best Jared — private log", public: false, files: gistPayload()
       }) }, tok);
       dropDirty(sent);
-      gid = g.id; lsSet(LS_GIST, gid); el("ghGist").value = gid;
+      gid = g.id; GID_MEM = gid; lsSet(LS_GIST, gid); el("ghGist").value = gid;
       msg("Created secret gist " + gid + " — copy that ID onto your other device.");
     }
-    el("ghGist").value = lsGet(LS_GIST, "");
+    el("ghGist").value = gidVal();
     setPill("syncPill", "synced " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), "ok");
   } catch (e) {
     setPill("syncPill", "sync failed", "err");
     msg(e.message + ". A 401/403 means the token is wrong, expired, or missing Gists: Read and write.");
-  } finally { el("btnSync").disabled = false; }
+  } finally { el("btnSync").disabled = false; SYNC_INFLIGHT = false; }
 }
 function forgetToken() {
+  /* The mirror has to go too, or "removed from this device" is false for
+     the rest of the session and the forced push keeps using it. */
+  TOK_MEM = "";
   lsDel(LS_TOK); el("ghTok").value = "";
   setPill("syncPill", "not configured", "");
   msg("Token removed from this device. Log still saved locally; gist untouched.");
 }
 function openGist() {
-  const gid = lsGet(LS_GIST, "");
+  const gid = gidVal();
   if (!gid) { msg("No gist yet — sync once to create it."); return; }
   window.open("https://gist.github.com/" + gid, "_blank", "noopener");
 }
@@ -1483,6 +1587,7 @@ function toggleTheme() {
 let booted = false;
 function boot() {
   if (booted) return; booted = true;
+  askPersistentStorage();
   loadLocal(); loadPrefs(); loadLifts();
   el("cDose").value = PREFS.cDose; el("cTime").value = PREFS.cTime;
   el("cBed").value = PREFS.cBed; el("cHalf").value = PREFS.cHalf;
@@ -1496,8 +1601,8 @@ function boot() {
   window.addEventListener("hashchange", applyRoute);
   applyRoute();
 
-  const gid = lsGet(LS_GIST, ""); if (gid) el("ghGist").value = gid;
-  if (lsGet(LS_TOK, "")) { setPill("syncPill", "token saved on this device", "ok"); syncNow(true); }
+  const gid = gidVal(); if (gid) el("ghGist").value = gid;
+  if (tokVal()) { setPill("syncPill", "token saved on this device", "ok"); syncNow(true); }
   /* Counts attested days, not stored ones. "Days in the record" has to name
      the same quantity here as on Review or the phrase means two numbers. */
   const keys = Object.keys(DB);

@@ -208,6 +208,14 @@
     background:var(--surface-1);margin-top:10px;font-size:12.5px;line-height:1.4}
   .callout .ic{flex:none;width:15px;height:15px;color:var(--st-critical);margin-top:1px}
   .callout b{color:var(--crit-text)}
+  /* Same callout, warning key. --warn-text for all three, never raw
+     --st-warning: #fab219 is 1.7:1 on light --surface-1, so the word would
+     be unreadable AND the border and icon would fade to nothing beside the
+     critical callout's 5.1:1 -- the two would not read as the same object.
+     In dark --warn-text IS --st-warning, so the amber is unchanged there. */
+  #storageWarn{border-color:var(--warn-text)}
+  #storageWarn .ic{color:var(--warn-text)}
+  #storageWarn b{color:var(--warn-text)}
 
   /* ---------- cards ---------- */
   .card{background:var(--surface-1);border:1px solid var(--border);
@@ -567,6 +575,13 @@
   <div class="callout" id="missedTwice" role="status">
     <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-alert"/></svg>
     <div><b>Missed twice</b> — <span id="missedTwiceText"></span></div>
+  </div>
+
+  <!-- Shown only when a write was refused, and never alongside the one
+       above: renderToday() picks exactly one. -->
+  <div class="callout" id="storageWarn" role="status">
+    <svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><b>Not saved</b> — <span id="storageWarnText"></span></div>
   </div>
 
   <div class="card tapcard">
