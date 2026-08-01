@@ -90,7 +90,9 @@ Open the app, expand **Set or change the passphrase** on the lock screen, type t
 
 Saves automatically per browser. To share across devices, paste a GitHub fine-grained token (**Account permissions → Gists: Read and write**, no repository access) into Setup. The first sync creates a secret gist and shows its ID; paste that ID on your other device.
 
-Merging is **field-level**: the newest edit wins per field, and anything this device changed since its last successful push is re-applied after every merge. So the 08:20 Garmin job cannot swallow a tick or a note you made that morning and hadn't synced.
+Merging is **whole-record last-write-wins**, not field-level: for each day, whichever side carries the newer `_u` wins outright, and the older side only supplies keys the newer one lacks. It looks per-field because `blank()` and its two Python copies give every record every field, so there is never a missing key left to fill — the resemblance ends the moment one side knows a field the other doesn't.
+
+The guarantee you actually rely on is the step after that merge: every field this device changed since its last successful push is re-applied on top of the merged record. So the 08:20 Garmin job cannot swallow a tick or a note you made that morning and hadn't synced.
 
 On a work laptop, consider skipping the token — the tracker still saves locally and Download CSV still works.
 
@@ -122,7 +124,11 @@ A GitHub Action pulls sleep and activities once a day. Setup and the failure mod
 
 `_u` is the last-edit timestamp. Both the app and the Python sync **preserve top-level keys they don't recognise**, so adding a field on one side can't destroy one written by the other.
 
-Two rules if you add a day field: it must be touched in all ten places (JS `blank()`, `FIELDS`, `isEmpty()`, `save()`, `loadDay()`, `toCSV()` header *and* row, the HTML control, plus Python `blank_day()`, `CSV_HEADER`, `to_csv()`), and **CSV columns are append-only** — inserting one misaligns every CSV already downloaded.
+`v` is the document version and it **stays 2**. Three writers set it — the browser on every push, `garmin_sync.py`, and `fitnotes_sync.py` — and nothing anywhere reads it. The `known` map in the browser's sync path does list `v`, but that map decides which top-level keys are handled directly and which get preserved verbatim; its values are presence flags, not version numbers. Bumping it would be worse than useless: the browser would start writing `3` while both Python jobs kept writing `2`, so the value would oscillate with whichever writer touched the gist last. Give it a reader before you give it a new number.
+
+Two rules if you add a day field: it must be touched in all eleven places (JS `blank()`, `FIELDS`, `isEmpty()`, `save()`, `loadDay()`, `toCSV()` header *and* row, the HTML control, plus Python `blank_day()`, `CSV_HEADER`, `to_csv()`, and the inline day literal inside `apply_to_body()` in [`sync/fitnotes_sync.py`](sync/fitnotes_sync.py)), and **CSV columns are append-only** — inserting one misaligns every CSV already downloaded. The eleventh is the one that gets missed: it is a hand-typed copy of the whole day record rather than a call to `blank_day()`, so a grep for `blank_day` never surfaces it.
+
+The CSV is 19 columns today, and the two headers — `toCSV()` in the app, `CSV_HEADER` in `garmin_sync.py` — must stay byte-identical. **Slot 20 is reserved for `not_applicable`**, a space-joined list of behaviour keys. Nothing writes it yet and nothing else may claim it. Space-joined rather than comma-joined because a comma forces quoting, and quoting is implemented twice — `csvEsc` in JS, `csv_escape` in Python — so the two would have to agree byte for byte on a file both sides write.
 
 ---
 
