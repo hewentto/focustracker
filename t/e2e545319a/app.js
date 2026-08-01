@@ -6,6 +6,7 @@
 const LS_UNLOCK = "ft.unlocked.v1";
 const LS_DATA = "ft.data.v1", LS_PREF = "ft.prefs.v1", LS_TOK = "ft.tok.v1";
 const LS_GIST = "ft.gist.v1", LS_THEME = "ft.theme.v1", LS_DIRTY = "ft.dirty.v1";
+const LS_LIFTS = "ft.lifts.v1";
 const GIST_FILE = "focus-tracker-data.json";
 const CSV_FILE = "focus-log.csv";
 
@@ -32,6 +33,11 @@ const DEFAULT_PREFS = {
 };
 
 let DB = {}, PREFS = Object.assign({}, DEFAULT_PREFS);
+/* Imported FitNotes lift detail, keyed by ISO date. Kept OUT of the day
+   record on purpose: it is a variable-length list of sets, the day
+   record is a flat row that has to survive a CSV round trip, and
+   FitNotes -- not this app -- is its source of truth. */
+let LIFTS = {};
 let CUR = isoDay(new Date()), syncTimer = null;
 /* Top-level gist keys we don't understand. Preserved verbatim on write
    so a future field added by any other client isn't destroyed. */
@@ -134,6 +140,87 @@ function persist() {
   }
 }
 function loadLocal() { try { DB = prune(JSON.parse(lsGet(LS_DATA, "{}")) || {}); } catch (e) { DB = {}; } }
+function loadLifts() { try { LIFTS = JSON.parse(lsGet(LS_LIFTS, "{}")) || {}; } catch (e) { LIFTS = {}; } }
+function saveLifts() { lsSet(LS_LIFTS, JSON.stringify(LIFTS)); }
+
+/* ---------- FitNotes import ----------
+   FitNotes has no API and its Google Drive auto-backup lands in Drive's
+   appDataFolder, which is scoped so ONLY the creating app can read it --
+   not hidden, genuinely inaccessible to everything else. So the route in
+   is the separate Spreadsheet Export (Settings > Data > Spreadsheet
+   Export > Save Export), which writes an ordinary CSV. */
+let FN_PENDING = null;
+
+function fnFile(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => fnPreview(String(rd.result || ""));
+  rd.onerror = () => fnSay("Couldn't read that file.", true);
+  rd.readAsText(f);
+}
+function fnPastePreview() { fnPreview(el("fnBox").value); }
+
+function fnPreview(text) {
+  const p = parseFitNotes(text);
+  FN_PENDING = p.ok ? p : null;
+  const box = el("fnResult");
+  box.innerHTML = "";
+  if (!p.ok) { fnSay(p.error, true); el("fnCommit").disabled = true; return; }
+
+  const s = p.stats;
+  const known = Object.keys(p.days).filter(d => DB[d]).length;
+  const lines = [
+    s.workouts + " workouts · " + s.sets + " sets · " + s.exercises + " exercises",
+    s.from + " → " + s.to,
+    known + " of those days already exist here and will be updated, not replaced",
+  ];
+  if (s.cardioRows) lines.push(s.cardioRows + " cardio rows kept as detail (Garmin still owns runs)");
+  if (s.skipped) lines.push(s.skipped + " rows skipped — no usable date, exercise or reps");
+  lines.forEach(t => { const d = document.createElement("div"); d.textContent = t; box.appendChild(d); });
+  p.warnings.forEach(w => {
+    const d = document.createElement("div"); d.className = "fnwarn"; d.textContent = "⚠ " + w; box.appendChild(d);
+  });
+  el("fnCommit").disabled = false;
+  fnSay("");
+}
+function fnSay(t, bad) {
+  const n = el("fnMsg"); if (!n) return;
+  n.textContent = t || ""; n.className = "note" + (bad ? " bad" : "");
+}
+
+function fnCommit() {
+  const p = FN_PENDING;
+  if (!p || !p.ok) return;
+  let marked = 0;
+  Object.keys(p.days).forEach(iso => {
+    LIFTS[iso] = p.days[iso];
+    if (!fitnotesIsLiftDay(p.days[iso])) return;
+    const before = DB[iso] ? Object.assign({}, DB[iso]) : null;
+    if (!DB[iso]) DB[iso] = blank();
+    const r = DB[iso];
+    r.train = true;
+    /* Never clobber what Garmin recorded -- if the day already has a
+       run, the lift becomes the second session rather than replacing it. */
+    if (!r.trainType) r.trainType = "lift";
+    else if (r.trainType !== "lift" && !r.train2) r.train2 = "lift";
+    r._u = Date.now();
+    markDirty(iso, before, r);
+    marked++;
+  });
+  Object.keys(p.loads).forEach(k => { PREFS.loads[k] = p.loads[k]; });
+  saveLifts(); persist(); savePrefs(); render();
+  FN_PENDING = null;
+  el("fnCommit").disabled = true;
+  el("fnBox").value = "";
+  fnSay("Imported. " + marked + " days marked as lift sessions and " +
+    Object.keys(p.loads).length + " exercise loads updated.");
+}
+function fnClear() {
+  LIFTS = {}; saveLifts();
+  fnSay("Imported lift detail cleared. Your day records and ticks are untouched.");
+  render();
+}
 
 /* ---------- prefs ---------- */
 /* Prefs are configuration, not a day record: one object, its own _u,
@@ -507,16 +594,30 @@ function renderProgramme() {
       const c2 = document.createElement("td"); c2.textContent = row.sets + " × " + row.reps;
       const c3 = document.createElement("td"); c3.textContent = row.rir;
       const c4 = document.createElement("td");
-      const inp = document.createElement("input");
-      inp.type = "text"; inp.className = "loadin"; inp.placeholder = "—";
-      inp.value = PREFS.loads[row.lift] || "";
-      inp.setAttribute("aria-label", "Last load for " + row.lift);
-      inp.addEventListener("change", () => {
-        if (inp.value.trim()) PREFS.loads[row.lift] = inp.value.trim();
-        else delete PREFS.loads[row.lift];
-        savePrefs();
-      });
-      c4.appendChild(inp);
+      /* Prefer an imported FitNotes match; fall back to a hand-typed
+         value stored under the template's own name. */
+      const hit = fitnotesLoadFor(PREFS.loads, row);
+      if (hit && hit.name !== row.lift) {
+        const b = document.createElement("div");
+        b.className = "fnload";
+        b.textContent = hit.load;
+        const src = document.createElement("span");
+        src.className = "fnsrc";
+        src.textContent = hit.name;
+        b.appendChild(src);
+        c4.appendChild(b);
+      } else {
+        const inp = document.createElement("input");
+        inp.type = "text"; inp.className = "loadin"; inp.placeholder = "—";
+        inp.value = PREFS.loads[row.lift] || "";
+        inp.setAttribute("aria-label", "Last load for " + row.lift);
+        inp.addEventListener("change", () => {
+          if (inp.value.trim()) PREFS.loads[row.lift] = inp.value.trim();
+          else delete PREFS.loads[row.lift];
+          savePrefs();
+        });
+        c4.appendChild(inp);
+      }
       [c1, c2, c3, c4].forEach(c => tr.appendChild(c));
       tbl.appendChild(tr);
     });
@@ -572,6 +673,57 @@ function renderProgramme() {
   w17.value = PREFS.week17 || "";
   setText("pgHorizon", horizonLine());
   setText("pgInjury", (wk && wk <= NOVICE_INJURY_WINDOW.throughWeek) ? NOVICE_INJURY_WINDOW.note : "");
+
+  /* --- real volume from FitNotes, if any has been imported --- */
+  const fnBox = el("pgFitnotes");
+  fnBox.innerHTML = "";
+  const liftDates = Object.keys(LIFTS).sort();
+  if (!liftDates.length) {
+    const p = document.createElement("p"); p.className = "note";
+    p.textContent = "No FitNotes export imported yet. Setup → Import from FitNotes turns the " +
+      "estimated set counts below into real ones, and fills in every last load.";
+    fnBox.appendChild(p);
+  } else {
+    const wk = weekOf(isoDay(new Date()));
+    const sets = fitnotesWeeklySets(LIFTS, wk);
+    const cats = Object.keys(sets).sort((a, b) => sets[b] - sets[a]);
+    const h = document.createElement("p"); h.className = "note";
+    h.textContent = "Sets per muscle group this week, from " + liftDates.length +
+      " imported sessions (" + liftDates[0] + " → " + liftDates[liftDates.length - 1] + "):";
+    fnBox.appendChild(h);
+    if (!cats.length) {
+      const p = document.createElement("p"); p.className = "why";
+      p.textContent = "Nothing logged in FitNotes this calendar week yet.";
+      fnBox.appendChild(p);
+    } else cats.forEach(c => {
+      const row = document.createElement("div");
+      const n = sets[c];
+      /* PLAN §3: ~4 sets/muscle/week is the minimum effective dose,
+         8–12 the useful band. Under-dose is worth naming; over is not
+         an error, just diminishing returns. */
+      meterInto(row, c + (n < SETS_PER_MUSCLE.min ? " — under the ~4-set minimum" : ""),
+        fnPlural(n, "set"), Math.min(1, n / SETS_PER_MUSCLE.bandHigh));
+      fnBox.appendChild(row);
+    });
+    /* the most recent session, so "what did I lift last time" is answered */
+    const last = liftDates[liftDates.length - 1];
+    const d = LIFTS[last];
+    if (d && d.exercises.length) {
+      const t = document.createElement("p"); t.className = "note";
+      t.textContent = "Last session — " + fmtShortDay(last) + ":";
+      fnBox.appendChild(t);
+      const ul = document.createElement("ul"); ul.className = "note"; ul.style.paddingLeft = "18px";
+      d.exercises.forEach(ex => {
+        if (!ex.sets.length) return;
+        const li = document.createElement("li");
+        const top = ex.sets.reduce((a, s) => (s.kg > a.kg ? s : a), ex.sets[0]);
+        li.textContent = ex.name + " — " + fnPlural(ex.sets.length, "set") + ", top " +
+          (top.kg ? top.kg + " kg × " + top.reps : "bodyweight × " + top.reps);
+        ul.appendChild(li);
+      });
+      fnBox.appendChild(ul);
+    }
+  }
 
   const gl = el("pgGuards"); gl.innerHTML = "";
   RUN_GUARDRAILS.forEach(g => {
@@ -931,7 +1083,8 @@ async function gh(path, opts, tok) {
 /* Spread REMOTE_EXTRA first so any top-level key this build doesn't
    know about survives the round trip instead of being destroyed. */
 function gistPayload() {
-  const body = Object.assign({}, REMOTE_EXTRA, { v: 2, data: DB, prefs: PREFS });
+  const body = Object.assign({}, REMOTE_EXTRA,
+    { v: 2, data: DB, prefs: PREFS, lifts: LIFTS });
   return { [GIST_FILE]: { content: JSON.stringify(body, null, 1) },
            [CSV_FILE]: { content: toCSV() } };
 }
@@ -955,10 +1108,14 @@ async function syncNow(quiet) {
       const f = g.files && g.files[GIST_FILE];
       if (f && f.content) {
         let body = {}; try { body = JSON.parse(f.content) || {}; } catch (e) {}
-        const known = { v: 1, data: 1, prefs: 1 };
+        const known = { v: 1, data: 1, prefs: 1, lifts: 1 };
         REMOTE_EXTRA = {};
         Object.keys(body).forEach(k => { if (!known[k]) REMOTE_EXTRA[k] = body[k]; });
         DB = prune(merge(DB, body.data || {}, loadDirty()));
+        /* Lift detail is whole-day, from a single source of truth on the
+           phone, so a per-day union is enough -- this device wins on a
+           day both sides hold, because it is the one that just imported. */
+        if (body.lifts) { LIFTS = Object.assign({}, body.lifts, LIFTS); saveLifts(); }
         if (body.prefs && (body.prefs._u || 0) > (PREFS._u || 0)) {
           PREFS = Object.assign({}, DEFAULT_PREFS, body.prefs);
           if (!PREFS.loads) PREFS.loads = {};
@@ -1031,7 +1188,7 @@ function toggleTheme() {
 let booted = false;
 function boot() {
   if (booted) return; booted = true;
-  loadLocal(); loadPrefs();
+  loadLocal(); loadPrefs(); loadLifts();
   el("cDose").value = PREFS.cDose; el("cTime").value = PREFS.cTime;
   el("cBed").value = PREFS.cBed; el("cHalf").value = PREFS.cHalf;
   CUR = isoDay(new Date());                 /* cold start is always today */

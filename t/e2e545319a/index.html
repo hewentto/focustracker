@@ -196,6 +196,12 @@
   .parkbtn{margin-left:6px;padding:1px 6px;font-size:10.5px;border-radius:5px}
   .unpark{display:flex;align-items:center;justify-content:space-between;gap:10px;
     padding:6px 0;border-top:1px solid var(--border);font-size:12.5px}
+  .fnresult{margin-top:10px;font-size:12.5px;color:var(--text-secondary);line-height:1.6}
+  .fnresult div{padding:1px 0}
+  .fnresult .fnwarn{color:#8a6100}
+  .note.bad{color:var(--st-critical)}
+  input[type=file]{width:100%;font-size:13px;padding:8px;border-radius:8px;
+    border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary)}
 
   table{border-collapse:collapse;width:100%;font-size:12.5px}
   th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
@@ -210,6 +216,8 @@
   table.lift{margin-top:10px;font-size:12.5px}
   table.lift td{white-space:nowrap}
   .loadin{width:78px;font-size:13px;padding:4px 6px}
+  .fnload{font-weight:700;font-size:12.5px;white-space:nowrap}
+  .fnsrc{display:block;font-weight:400;font-size:10.5px;color:var(--text-muted)}
 
   /* ---------- programme rail ---------- */
   .rail{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;margin-top:10px}
@@ -499,7 +507,8 @@
 
   <div class="card">
     <h2>Lifting</h2>
-    <p class="note" id="pgSets"></p>
+    <div id="pgFitnotes"></div>
+    <p class="note" id="pgSets" style="margin-top:14px"></p>
     <ul class="note" id="pgNegations" style="padding-left:18px"></ul>
   </div>
 
@@ -659,6 +668,41 @@
   </div>
 
   <div class="card">
+    <h2>Import from FitNotes</h2>
+    <p class="note" style="margin-top:0">FitNotes already holds every set you've lifted, so there is no
+      reason to retype loads here. Import its CSV and the lift notepad fills itself, the set-per-muscle
+      counts become real instead of estimated, and lift days get ticked automatically.</p>
+    <details open>
+      <summary>Getting the file out of FitNotes</summary>
+      <p class="why" style="margin-top:8px">In FitNotes: <b>overflow menu → Settings → Data →
+        Spreadsheet Export → Save Export</b> (or <b>Share Export</b> to send it straight to Drive, Dropbox
+        or email). Pick <b>Workout</b> data.</p>
+      <p class="why"><b>Not the Backup.</b> The automatic Google&nbsp;Drive backup writes a
+        <code>.fitnotes</code> database into Drive's hidden <em>application data folder</em>, which is
+        scoped so only FitNotes itself can read it — you can see how much space it uses and disconnect it,
+        but nothing, including this app, can open it. It exists to restore FitNotes onto a new phone.
+        The Spreadsheet Export is the separate feature, and it is an ordinary CSV you can see.</p>
+    </details>
+    <div class="grid g2" style="margin-top:12px">
+      <div><label class="f" for="fnFileIn">Choose the exported CSV</label>
+        <input type="file" id="fnFileIn" accept=".csv,text/csv" onchange="fnFile(this)"></div>
+      <div><label class="f" for="fnBox">…or paste its contents</label>
+        <textarea id="fnBox" placeholder="Date,Exercise,Category,Weight,Weight Unit,Reps&#10;2026-07-27,Barbell Squat,Legs,100,kg,5"></textarea></div>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button onclick="fnPastePreview()">Preview pasted text</button>
+      <button class="primary" id="fnCommit" onclick="fnCommit()" disabled>Import</button>
+      <button onclick="fnClear()">Clear imported lifts</button>
+    </div>
+    <div id="fnResult" class="fnresult"></div>
+    <div class="note" id="fnMsg" style="min-height:1.2em"></div>
+    <p class="why">Nothing is overwritten blindly: a day that already records a run keeps it and gains the
+      lift as its second session, and your ticks, notes and times are never touched. Both the Android
+      (<code>Weight</code> + <code>Weight&nbsp;Unit</code>) and iOS (<code>Weight&nbsp;(kg)</code>) column
+      layouts are accepted, and pounds are converted.</p>
+  </div>
+
+  <div class="card">
     <h2>Parked items</h2>
     <div id="unparkList"></div>
   </div>
@@ -696,6 +740,7 @@
 
 <script src="gate.js"></script>
 <script src="programme.js"></script>
+<script src="fitnotes.js"></script>
 <script src="charts.js"></script>
 <script src="app.js"></script>
 </body>

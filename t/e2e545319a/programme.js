@@ -12,20 +12,36 @@
 
 /* ---------- §3 Lifting — 3x/week full body, A/B alternating ---------- */
 
+/* `match` / `not` map imported FitNotes exercise names onto these rows.
+   Explicit keyword lists rather than fuzzy scoring, because "press"
+   appears in half the catalogue and a wrong match silently shows the
+   wrong weight -- which is worse than showing none. Longest matching
+   keyword wins; `not` breaks the cases a substring alone can't
+   (Romanian deadlift is not the deadlift row). */
 const LIFT_TEMPLATES = {
   A: [
-    { lift: "Squat or leg press",        sets: 3, reps: "5–8",   rir: "2",   muscles: ["quads", "glutes"] },
-    { lift: "Bench press or DB press",   sets: 3, reps: "6–10",  rir: "2",   muscles: ["chest", "triceps"] },
-    { lift: "Row (barbell/cable/DB)",    sets: 3, reps: "8–12",  rir: "2",   muscles: ["back", "biceps"] },
-    { lift: "Romanian deadlift",         sets: 2, reps: "8–12",  rir: "2–3", muscles: ["hams", "glutes"] },
-    { lift: "Lateral raise",             sets: 2, reps: "12–15", rir: "1–2", muscles: ["delts"] },
+    { lift: "Squat or leg press",        sets: 3, reps: "5–8",   rir: "2",   muscles: ["quads", "glutes"],
+      match: ["squat", "leg press", "hack squat"], not: ["split", "bulgarian", "goblet"] },
+    { lift: "Bench press or DB press",   sets: 3, reps: "6–10",  rir: "2",   muscles: ["chest", "triceps"],
+      match: ["bench", "chest press", "dumbbell press", "db press"] },
+    { lift: "Row (barbell/cable/DB)",    sets: 3, reps: "8–12",  rir: "2",   muscles: ["back", "biceps"],
+      match: ["row"], not: ["upright"] },
+    { lift: "Romanian deadlift",         sets: 2, reps: "8–12",  rir: "2–3", muscles: ["hams", "glutes"],
+      match: ["romanian", "rdl", "stiff leg", "stiff-leg"] },
+    { lift: "Lateral raise",             sets: 2, reps: "12–15", rir: "1–2", muscles: ["delts"],
+      match: ["lateral", "side raise"] },
   ],
   B: [
-    { lift: "Deadlift or trap-bar DL",   sets: 2, reps: "4–6",   rir: "2–3", muscles: ["back", "hams", "glutes"] },
-    { lift: "Overhead press",            sets: 3, reps: "6–10",  rir: "2",   muscles: ["delts", "triceps"] },
-    { lift: "Pull-up or lat pulldown",   sets: 3, reps: "6–12",  rir: "2",   muscles: ["back", "biceps"] },
-    { lift: "Split squat or leg curl",   sets: 2, reps: "10–15", rir: "2",   muscles: ["quads", "hams"] },
-    { lift: "Curl + triceps superset",   sets: 2, reps: "10–15", rir: "1–2", muscles: ["biceps", "triceps"] },
+    { lift: "Deadlift or trap-bar DL",   sets: 2, reps: "4–6",   rir: "2–3", muscles: ["back", "hams", "glutes"],
+      match: ["deadlift", "trap bar", "trap-bar"], not: ["romanian", "rdl", "stiff"] },
+    { lift: "Overhead press",            sets: 3, reps: "6–10",  rir: "2",   muscles: ["delts", "triceps"],
+      match: ["overhead", "ohp", "military", "shoulder press"] },
+    { lift: "Pull-up or lat pulldown",   sets: 3, reps: "6–12",  rir: "2",   muscles: ["back", "biceps"],
+      match: ["pull up", "pull-up", "pullup", "chin", "pulldown", "lat pull"] },
+    { lift: "Split squat or leg curl",   sets: 2, reps: "10–15", rir: "2",   muscles: ["quads", "hams"],
+      match: ["split squat", "bulgarian", "lunge", "leg curl", "hamstring curl"] },
+    { lift: "Curl + triceps superset",   sets: 2, reps: "10–15", rir: "1–2", muscles: ["biceps", "triceps"],
+      match: ["bicep", "barbell curl", "dumbbell curl", "hammer curl", "tricep", "pushdown", "skull"] },
   ],
 };
 
