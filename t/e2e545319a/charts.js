@@ -18,6 +18,11 @@
        series name can contain anything.
      - Every chart has a designed zero/one/three-point state. With
        ~3 days of data that IS the normal state, for weeks.
+     - Renderers may call app.js date helpers (isoDay, isWeekend,
+       addDays, attested). This file loads first, but nothing in it runs
+       until app.js calls registerChart from boot(), so by draw time
+       every one of them is defined. Duplicating them here instead would
+       give the charts a second definition of what a weekend is.
    ============================================================ */
 
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -192,10 +197,14 @@ function emptyNote(svg, w, h, msg, sub) {
 /* ============================================================
    1. Wake-time dot plot -- the anchor at full resolution.
 
-   EMPHASIS form, not categorical: weekdays carry the accent, weekends
-   recede to gray. The story is "the weekday hour is wrong", not
-   "compare two equal groups". A target BAND (not a line) because the
-   behaviour is defined as +/-30 min, so the band IS the rule.
+   EMPHASIS form, not categorical: weekdays carry series 1, weekends
+   recede to gray. ("the accent" here until Phase 3 -- --accent is chrome
+   only and never encodes anything, so the word was wrong even in prose.)
+   The story is "the weekday hour is wrong", not "compare two equal
+   groups". A target BAND (not a line) because the behaviour is defined
+   as +/-30 min, so the band IS the rule. Weekend runs get a --band
+   shade behind the dots, reinforcing the same split rather than adding
+   a second encoding on top of it.
 
    Deliberately NOT connected into a line: a gap between Tuesday and
    Friday is missing data, and a line would draw an interpolation
@@ -234,7 +243,35 @@ function drawWakeDots(svg, w, days, db, targetFor) {
     : (i / (days.length - 1)) * plotW);
   const y = m => padT + ((m - lo) / (hi - lo)) * plotH;   /* earlier = higher */
 
-  /* target band, drawn first so everything sits on top of it */
+  /* Weekend bands, under everything. The dots already recede to gray on
+     Sat/Sun, so this reinforces an encoding the chart has committed to
+     rather than adding a second one -- and it stops the reader counting
+     columns to work out where a weekend was.
+     One rect per contiguous RUN, not one per day: two abutting rects at
+     fractional pixel widths seam against each other, and a Sat+Sun pair
+     then reads as two stripes instead of one weekend.
+     Suppressed under 3px a day -- the heatmap's own legibility floor,
+     below which a band is a smear rather than a mark -- and suppressed
+     when every day in the window is a weekend, because under the
+     "Weekends only" filter an edge-to-edge band encodes nothing. */
+  const dayW = days.length > 1 ? plotW / (days.length - 1) : plotW;
+  if (dayW >= 3 && !days.every(d => isWeekend(d))) {
+    const edgeL = i => (i === 0 ? padL : (x(i) + x(i - 1)) / 2);
+    const edgeR = i => (i === days.length - 1 ? w - padR : (x(i) + x(i + 1)) / 2);
+    let run = -1;
+    for (let i = 0; i <= days.length; i++) {
+      const wknd = i < days.length && isWeekend(days[i]);
+      if (wknd && run < 0) run = i;
+      else if (!wknd && run >= 0) {
+        svg.appendChild(svgEl("rect", { x: edgeL(run), y: padT,
+          width: Math.max(0, edgeR(i - 1) - edgeL(run)), height: plotH,
+          fill: "var(--band)" }));
+        run = -1;
+      }
+    }
+  }
+
+  /* target band: over the weekend bands, under every mark */
   let bandLo = null, bandHi = null;
   days.forEach((d, i) => {
     const t = targetFor(d);
@@ -338,10 +375,22 @@ function drawBehaviourHeat(svg, w, days, db, keys, names, core) {
         opacity: future ? "0.35" : "1",
       }));
       /* Missed twice running: an outline mark, never a colour alone,
-         and never on a day still in progress. */
-      if (!done && !future && d < todayIso && i > 0) {
-        const prev = db[days[i - 1]];
-        if (prev && !prev[k]) {
+         and never on a day still in progress.
+         The neighbour is the previous CALENDAR day, never the previous
+         column. Under DAYFILTER="weekdays" the column left of a Monday is
+         the previous Friday, so this used to report a two-day run across
+         a weekend that was never in the window; under "weekends only" it
+         compared a Saturday with the Sunday six days before it. The i > 0
+         guard goes with it -- the day before the window is in the db
+         whether or not it has a column, and this is a claim about the
+         record, not about the view.
+         Both days must be attested, matching Today's callout. A
+         Garmin-only record is a day nobody answered: every box on it
+         reads false because no one was asked, not because anything was
+         missed, and a day with no record at all is not a miss either. */
+      if (!done && d < todayIso && attested(rec)) {
+        const prev = db[addDays(d, -1)];
+        if (prev && !prev[k] && attested(prev)) {
           svg.appendChild(svgEl("rect", {
             x: x0 + 0.75, y: yTop + 2.75, width: Math.max(1, cellW - 1.5),
             height: rowH - gap - 3.5, rx: 3, fill: "none",
@@ -369,13 +418,14 @@ function drawBehaviourHeat(svg, w, days, db, keys, names, core) {
 /* ============================================================
    3. Triage bars -- "which item is dying?"
 
-   EMPHASIS form: the lowest-adherence item takes the accent, every
-   other row is de-emphasis gray. Deliberately bending "colour follows
-   the entity, never its rank", because here rank IS the question the
-   chart exists to answer. Fenced so it stays honest: row order is
-   fixed (never re-sorted under the reader), the highlighted item is
-   named in the subhead, ties break deterministically, and nothing is
-   highlighted at all when every item is healthy.
+   EMPHASIS form: the lowest-adherence item takes series 1 AND a ▲ on
+   its label, every other row is de-emphasis gray. Deliberately bending
+   "colour follows the entity, never its rank", because here rank IS the
+   question the chart exists to answer. Fenced so it stays honest: row
+   order is fixed (never re-sorted under the reader), the highlighted
+   item is named in the subhead, ties break deterministically, nothing is
+   highlighted at all when every item is healthy, and the ▲ carries the
+   rank in a mark because --s1 also marks Core Three in this same chart.
    ============================================================ */
 
 function drawTriage(svg, w, rows) {
@@ -394,7 +444,13 @@ function drawTriage(svg, w, rows) {
 
   rows.forEach((r, i) => {
     const yTop = padT + i * rowH, bh = 14;
-    svg.appendChild(svgText(r.name, { x: 0, y: yTop + rowH / 2 + 4,
+    /* The lowest bar is painted --s1, and eight lines down --s1 also marks
+       a Core Three row -- one hue meaning two things inside one chart,
+       under one legend. So rank travels on a mark as well: nothing in this
+       project may carry meaning by hue alone. The prefix appears on exactly
+       the row the fill picks out, or the mark and the hue disagree. */
+    const low = anyAtRisk && i === worst;
+    svg.appendChild(svgText((low ? "▲ " : "") + r.name, { x: 0, y: yTop + rowH / 2 + 4,
       fill: "var(--text-secondary)", "font-size": "11.5",
       "font-weight": r.core ? "700" : "500" }));
     if (r.core) {
@@ -408,17 +464,20 @@ function drawTriage(svg, w, rows) {
     if (bw > 0) {
       svg.appendChild(svgEl("rect", { x: padL, y: yTop + (rowH - bh) / 2,
         width: bw, height: bh, rx: 4,
-        fill: (anyAtRisk && i === worst) ? "var(--s1)" : "var(--text-muted)" }));
+        fill: low ? "var(--s1)" : "var(--text-muted)" }));
     }
     /* every row direct-labelled: 10 rows, and the number IS the point */
     svg.appendChild(svgText(Math.round(r.rate * 100) + "%",
       { x: w - 4, y: yTop + rowH / 2 + 4, "text-anchor": "end",
         fill: "var(--text-primary)", "font-size": "11",
-        "font-weight": (anyAtRisk && i === worst) ? "700" : "500",
+        "font-weight": low ? "700" : "500",
         "font-variant-numeric": "tabular-nums" }));
+    /* A glyph in a row label is not announced: the svg carries role="img"
+       with its own aria-label, so the ▲ is invisible to a screen reader
+       unless the hit target says it in words. */
     hoverable(svg, svgEl("rect", { x: padL, y: yTop, width: plotW, height: rowH }),
       [{ value: r.hit + " of " + r.poss + " days", label: "· " + r.name },
        { value: Math.round(r.rate * 100) + "%", label: "adherence" }],
-      r.name + ": " + r.hit + " of " + r.poss + " days");
+      r.name + ": " + r.hit + " of " + r.poss + " days" + (low ? ", lowest of all items" : ""));
   });
 }

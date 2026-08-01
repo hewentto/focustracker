@@ -1177,7 +1177,11 @@ function renderReview() {
     tri.appendChild(div);
   });
   setText("rvTriageSub", enough
-    ? "Sorted in fixed order, never re-ranked under you. The accent marks the lowest — that is the park candidate, not a verdict."
+    /* Said "the accent marks the lowest", which was wrong twice: the chart
+       paints --s1, a chart series slot, and --accent is chrome only and may
+       never encode data. The mark is what carries rank now, so the sentence
+       names the mark. */
+    ? "Sorted in fixed order, never re-ranked under you. In the chart ▲ marks the single lowest item — the park candidate, not a verdict."
     : "Verdicts are suppressed until 14 days are in the record. Median habit formation is 66 days; judging an item at day " +
       logged.length + " would be noise.");
 

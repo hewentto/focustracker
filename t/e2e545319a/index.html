@@ -33,6 +33,14 @@
     --border:#d4d5c9; --border-strong:#b6b7a7;
     --text-primary:#14150f; --text-secondary:#4a4b42; --text-muted:#6a6b60;
     --grid:#e1e1d7; --axis:#b6b7a7;
+    /* Chart-only neutral for a region shaded BEHIND data -- the weekend
+       runs on the wake plot. Its own token rather than --surface-2, because
+       it is tuned against the card it lies on and nothing else: one visible
+       step off --surface-1 and no more (1.13:1 here, 1.15:1 dark, measured),
+       or a fill drawn under every mark starts competing with the marks.
+       The dark ramp is compressed, so the same step needs a bigger number
+       there -- reusing the light delta made the band vanish on OLED. */
+    --band:#eaebe2;
 
     /* interface accent: the indigo of a written record. Chrome only. */
     --accent:#3a3080; --accent-on:#ffffff;
@@ -68,6 +76,7 @@
       --border:#33342a; --border-strong:#4b4c40;
       --text-primary:#ffffff; --text-secondary:#c6c7b9; --text-muted:#94958a;
       --grid:#2a2b22; --axis:#3a3b30;
+      --band:#25261b;
       --accent:#a79ef5; --accent-on:#14150f;
       --latch-on:#e8e9dc;
       --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
@@ -82,6 +91,7 @@
     --border:#33342a; --border-strong:#4b4c40;
     --text-primary:#ffffff; --text-secondary:#c6c7b9; --text-muted:#94958a;
     --grid:#2a2b22; --axis:#3a3b30;
+    --band:#25261b;
     --accent:#a79ef5; --accent-on:#14150f;
     --latch-on:#e8e9dc;
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
@@ -367,6 +377,10 @@
     color:var(--text-secondary);margin-top:10px}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;
     margin-right:6px;vertical-align:-1px}
+  /* A legend key that is a MARK rather than a swatch -- the triage ▲.
+     Same 10px slot as .legend i, so a mixed legend still lines up. */
+  .legend b{display:inline-block;width:10px;margin-right:6px;font-size:9px;
+    line-height:1;text-align:center;color:var(--text-secondary)}
   .charttip{position:absolute;z-index:60;display:none;pointer-events:none;
     background:var(--surface-1);border:1px solid var(--border-strong);border-radius:var(--radius-sm);
     padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.16);max-width:240px}
@@ -826,6 +840,7 @@
       <div class="chart" id="chTriage"></div>
       <div class="legend">
         <span><i style="background:var(--s1)"></i>Core Three</span>
+        <span><b aria-hidden="true">▲</b>Lowest adherence — unmarked while every item clears 60%</span>
       </div>
       <div id="triageRows" style="margin-top:12px"></div>
       <p class="note" id="rvTriageSub"></p>
@@ -837,8 +852,11 @@
       <div class="legend">
         <span><i style="background:var(--s1)"></i>Weekday</span>
         <span><i style="background:var(--text-muted)"></i>Weekend</span>
+        <span><i style="background:var(--band);border:1px solid var(--border);border-radius:2px"></i>Weekend shading</span>
         <span><i style="background:var(--s1);opacity:.25;border-radius:2px"></i>±30 min target band</span>
       </div>
+      <p class="note">The shading is dropped when every day in view is a weekend, and at windows
+        too wide to give a day 3px.</p>
       <div class="stat">
         <div><div class="n" id="wkMedian">—</div><div class="l">median wake</div></div>
         <div><div class="n" id="wkIQR">—</div><div class="l">IQR</div></div>
@@ -858,12 +876,20 @@
       <div class="chart" id="chHeat"></div>
       <div class="legend">
         <span><i style="background:var(--s3);border-radius:2px"></i>Done</span>
-        <span><i style="background:var(--surface-2);border-radius:2px"></i>Not done</span>
-        <span><i style="border:1.5px solid var(--st-critical);border-radius:2px"></i>Missed twice running</span>
+        <span><i style="background:var(--surface-2);border-radius:2px"></i>Not ticked, or never logged</span>
+        <!-- drawBehaviourHeat fades future days to 0.35, but no window can
+             reach one: windowDays() always ends on today and the select
+             offers 28/56/84/365. The branch stays as a guard; the legend
+             does not name it, because a key for a state the reader cannot
+             see costs width on a 375px phone and sends them looking. -->
+        <span><i style="border:1.5px solid var(--st-critical);border-radius:2px"></i>Missed twice running — both days answered</span>
         <span><i style="background:var(--s1);border-radius:50%"></i>Core Three</span>
       </div>
       <p class="note">One column is one day. No aggregation — a bad week stays visible as itself instead of
-        being averaged into a number that hides it. Today is never flagged: a day still in progress has not been missed.</p>
+        being averaged into a number that hides it. Today is never flagged: a day still in progress has not been missed.
+        A blank cell cannot separate a box you left unticked from a day nobody answered, which is why the outline
+        is held back unless both days were answered and the day before is the day before on the calendar, not the
+        column to the left.</p>
     </div>
 
     <div class="card">
