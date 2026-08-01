@@ -1,0 +1,55 @@
+name: FitNotes sync
+
+# Runs after the Garmin job so the two never race on the same gist.
+# FitNotes has no API and cannot export unattended, so this picks up
+# whatever backup is currently in the Drive folder. If you haven't shared
+# a new one, it finds the same file and exits without writing.
+on:
+  schedule:
+    - cron: "40 14 * * *"   # 14:40 UTC = 08:40 Mountain (MDT) / 07:40 (MST)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Shares a group with the Garmin job: both PATCH the same gist document,
+# and a concurrent read-modify-write would lose one side's changes.
+concurrency:
+  group: tracker-gist
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sync/requirements.txt
+
+      - name: Install deps
+        run: pip install -r sync/requirements.txt
+
+      - name: Sync FitNotes to Gist
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python sync/fitnotes_sync.py
+
+      # A failure here means the gist was left alone and the dashboard still
+      # has whatever it had. This is a broken enhancement, not a broken app.
+      - name: Explain failure
+        if: failure()
+        run: |
+          echo "::warning::FitNotes sync failed. Your tracker is unaffected."
+          echo "Most likely causes, in order:"
+          echo "  1. The Drive folder isn't shared with the service account's client_email"
+          echo "  2. GDRIVE_FOLDER_ID is wrong -- it's the id in the folder URL, not its name"
+          echo "  3. No .fitnotes file in that folder yet (Share Backup from the phone)"
+          echo "  4. FitNotes changed its schema -- check the user_version warning above"

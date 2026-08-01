@@ -8,3 +8,7 @@
 # and should be a decision, not a surprise at 08:20.
 garminconnect>=0.3.8,<0.4
 requests>=2.33
+
+# fitnotes_sync.py only: service-account auth for reading one Drive folder.
+# The .fitnotes parse itself is stdlib sqlite3 and needs nothing.
+google-auth>=2.35,<3

@@ -37,7 +37,7 @@ let DB = {}, PREFS = Object.assign({}, DEFAULT_PREFS);
    record on purpose: it is a variable-length list of sets, the day
    record is a flat row that has to survive a CSV round trip, and
    FitNotes -- not this app -- is its source of truth. */
-let LIFTS = {};
+let LIFTS = {}, LIFTS_U = 0;
 let CUR = isoDay(new Date()), syncTimer = null;
 /* Top-level gist keys we don't understand. Preserved verbatim on write
    so a future field added by any other client isn't destroyed. */
@@ -140,8 +140,15 @@ function persist() {
   }
 }
 function loadLocal() { try { DB = prune(JSON.parse(lsGet(LS_DATA, "{}")) || {}); } catch (e) { DB = {}; } }
-function loadLifts() { try { LIFTS = JSON.parse(lsGet(LS_LIFTS, "{}")) || {}; } catch (e) { LIFTS = {}; } }
-function saveLifts() { lsSet(LS_LIFTS, JSON.stringify(LIFTS)); }
+function loadLifts() {
+  try {
+    const o = JSON.parse(lsGet(LS_LIFTS, "{}")) || {};
+    /* Older builds stored the day map bare. Accept both shapes. */
+    if (o.days && typeof o.days === "object") { LIFTS = o.days; LIFTS_U = o._u || 0; }
+    else { LIFTS = o; LIFTS_U = 0; }
+  } catch (e) { LIFTS = {}; LIFTS_U = 0; }
+}
+function saveLifts() { lsSet(LS_LIFTS, JSON.stringify({ _u: LIFTS_U, days: LIFTS })); }
 
 /* ---------- FitNotes import ----------
    FitNotes has no API and its Google Drive auto-backup lands in Drive's
@@ -249,6 +256,7 @@ function fnCommitJSON(o) {
   PREFS.loads = o.loads || {};
   PREFS.unit = o.displayUnit === "kg" ? "kg" : "lb";
   if (o.routine) PREFS.routine = o.routine;
+  LIFTS_U = Date.now();          /* this snapshot is now the newest */
   saveLifts(); persist(); savePrefs(); render();
   FN_PENDING = null;
   el("fnCommit").disabled = true;
@@ -281,6 +289,7 @@ function fnCommit() {
     marked++;
   });
   Object.keys(p.loads).forEach(k => { PREFS.loads[k] = p.loads[k]; });
+  LIFTS_U = Date.now();
   saveLifts(); persist(); savePrefs(); render();
   FN_PENDING = null;
   el("fnCommit").disabled = true;
@@ -289,7 +298,7 @@ function fnCommit() {
     Object.keys(p.loads).length + " exercise loads updated.");
 }
 function fnClear() {
-  LIFTS = {}; saveLifts();
+  LIFTS = {}; LIFTS_U = Date.now(); saveLifts();
   fnSay("Imported lift detail cleared. Your day records and ticks are untouched.");
   render();
 }
@@ -1254,7 +1263,7 @@ async function gh(path, opts, tok) {
    know about survives the round trip instead of being destroyed. */
 function gistPayload() {
   const body = Object.assign({}, REMOTE_EXTRA,
-    { v: 2, data: DB, prefs: PREFS, lifts: LIFTS });
+    { v: 2, data: DB, prefs: PREFS, lifts: LIFTS, liftsUpdated: LIFTS_U });
   return { [GIST_FILE]: { content: JSON.stringify(body, null, 1) },
            [CSV_FILE]: { content: toCSV() } };
 }
@@ -1278,14 +1287,18 @@ async function syncNow(quiet) {
       const f = g.files && g.files[GIST_FILE];
       if (f && f.content) {
         let body = {}; try { body = JSON.parse(f.content) || {}; } catch (e) {}
-        const known = { v: 1, data: 1, prefs: 1, lifts: 1 };
+        const known = { v: 1, data: 1, prefs: 1, lifts: 1, liftsUpdated: 1 };
         REMOTE_EXTRA = {};
         Object.keys(body).forEach(k => { if (!known[k]) REMOTE_EXTRA[k] = body[k]; });
         DB = prune(merge(DB, body.data || {}, loadDirty()));
-        /* Lift detail is whole-day, from a single source of truth on the
-           phone, so a per-day union is enough -- this device wins on a
-           day both sides hold, because it is the one that just imported. */
-        if (body.lifts) { LIFTS = Object.assign({}, body.lifts, LIFTS); saveLifts(); }
+        /* A FitNotes export is a COMPLETE snapshot of all history, not a
+           delta -- so the newer writer replaces wholesale rather than the
+           two sides being unioned. A per-day union looks safer and isn't:
+           it strands days the other side has since corrected, and it made
+           a browser copy silently shadow anything the Action wrote. */
+        if (body.lifts && (body.liftsUpdated || 0) > LIFTS_U) {
+          LIFTS = body.lifts; LIFTS_U = body.liftsUpdated || 0; saveLifts();
+        }
         if (body.prefs && (body.prefs._u || 0) > (PREFS._u || 0)) {
           PREFS = Object.assign({}, DEFAULT_PREFS, body.prefs);
           if (!PREFS.loads) PREFS.loads = {};

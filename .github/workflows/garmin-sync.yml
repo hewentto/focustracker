@@ -12,8 +12,10 @@ on:
 permissions:
   contents: read
 
+# Shared with fitnotes-sync: both PATCH the same gist document, and two
+# concurrent read-modify-writes would silently lose one side's changes.
 concurrency:
-  group: garmin-sync
+  group: tracker-gist
   cancel-in-progress: false
 
 jobs:
