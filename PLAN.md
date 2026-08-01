@@ -64,8 +64,7 @@ Daily prompts for low-salience behaviours is exactly where the diet-logging coll
 | **Lift sessions** | 3/week | See §3 |
 | **Runs** | 2/week (Tue/Thu) | See §4 |
 | **Protein** | ~1.6 g/kg on 5+ days | Morton et al. 2018 (49 RCTs, N=1,863): FFM **+0.30 kg**, 1RM **+2.49 kg**, plateau ~1.6 g/kg |
-| **Alcohol** | ≤6 drinks, ≥4 dry nights, **none within 3h of bed** | See §5 |
-| **Social** | 2 substantive contacts (≥30 min, non-work, ≥1 in person) + 1 recurring group | See §6 |
+| **Social** | 2 substantive contacts (≥30 min, non-work, ≥1 in person) + 1 recurring group | See §5 |
 | **Outdoors** | 120 min green time | White et al. 2019 — weak evidence, cheap, largely a byproduct of daily item 2 |
 
 ---
@@ -146,24 +145,7 @@ Wilson et al. 2012 said yes and specifically blamed running. **Schumann et al. 2
 
 ---
 
-## 5. Alcohol
-
-The J-curve is dead, but "no safe level" overstates it too. Here's the accurate version.
-
-Zhao et al. 2023 (JAMA Network Open, **107 cohort studies, N=4,838,825**): the apparent benefit of light drinking (RR 0.85) **disappeared once former-drinker and study-quality bias were controlled — RR 0.93, p = .07, not significant.** The Mendelian randomisation evidence is cleaner still: in China Kadoorie (~500,000 adults), self-reported intake showed the classic U-shape while the *genetic* instrument showed none — same people, same outcomes, confounding removed by design.
-
-**But the mortality argument isn't the one that should move you.** The absolute risk increment at <7 drinks/week for a healthy 30-something male is small. The argument that matters is Tuesday morning:
-
-- **~2 drinks measurably reduces REM sleep** (Gardiner et al. 2024, 27 PSG studies)
-- **Next-day cognition is impaired at BAC ≈ 0**: short-term memory **g = 0.64**, long-term memory **g = 0.59**, sustained attention **g = 0.47** (Gunn et al. 2018, 19 studies, N=1,163)
-
-Those hangover effect sizes are **larger than almost any positive intervention in this entire document.** That asymmetry is the whole argument.
-
-**Target: ≤6 drinks/week, ≥4 dry nights, and nothing within 3 hours of bed.** The 3-hour rule is the highest-leverage, lowest-cost item.
-
----
-
-## 6. Social connection
+## 5. Social connection
 
 Holt-Lunstad et al. 2010 (**148 studies, N=308,849**): stronger social relationships, **OR 1.50** for survival. And risk is *higher* in midlife than old age (adjusted OR 1.57 under 65 vs 1.14 over 75).
 
@@ -177,7 +159,7 @@ One cheap, well-evidenced nudge: Epley & Schroeder (2014) found people assigned 
 
 ---
 
-## 7. Nutrition — three things, not thirty
+## 6. Nutrition — three things, not thirty
 
 **Protein: ~1.6 g/kg/day.** Morton et al. 2018 (49 RCTs, N=1,863) — supplementation added **+0.30 kg FFM** and **+2.49 kg 1RM**, with the benefit plateauing around 1.6 g/kg. Note the honest magnitude: 0.30 kg is the *entire* pooled effect. Protein is a floor to clear, not a lever to obsess over.
 
@@ -189,7 +171,7 @@ One cheap, well-evidenced nudge: Epley & Schroeder (2014) found people assigned 
 
 ---
 
-## 8. Parked — deliberately not in the system
+## 7. Parked — deliberately not in the system
 
 This list exists because leaving things out silently looks like an oversight. Each of these is parked for a stated reason, and parking is reversible.
 
@@ -208,7 +190,7 @@ This list exists because leaving things out silently looks like an oversight. Ea
 
 ---
 
-## 9. What "top performer habits" are actually worth
+## 8. What "top performer habits" are actually worth
 
 A structural warning, because you asked for this specifically.
 
@@ -220,7 +202,7 @@ The move isn't to copy routines. It's to run the small number of things with act
 
 ---
 
-## 10. Expectations, stated honestly
+## 9. Expectations, stated honestly
 
 - **Habit formation:** median 66 days, range **18–254**, and roughly **91 days for exercise** specifically. Only 48% of Lally's participants formed a fittable habit curve at all. Anyone promising 21 days is selling something.
 - **The month 4–7 cliff is real.** Among people who eventually disengage from tracking, 57–74% do it in months 4–7. Expect it. **33–46% of people who fall off come back** if there's something to come back to.

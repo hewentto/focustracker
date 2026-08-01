@@ -1,0 +1,18 @@
+# Python bytecode from running sync/ locally
+__pycache__/
+*.py[cod]
+
+# Local venvs for sync/requirements.txt
+.venv/
+venv/
+
+# Garmin OAuth tokens, if auth_setup.py is pointed at the repo.
+# These are credentials — they must never be committed.
+.garminconnect/
+*.garth
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

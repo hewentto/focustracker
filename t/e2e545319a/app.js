@@ -12,10 +12,10 @@ const KEYS=["wake","light","train","caff","block","log"];
 const CORE3=["wake","light","train"];
 const NAMES={wake:"Wake ±30m",light:"Morning light",train:"Trained",caff:"Caffeine plan",block:"Both blocks",log:"Logged"};
 /* Every user-editable field. Drives dirty-tracking and the emptiness test. */
-const FIELDS=KEYS.concat(["wakeT","bedT","focus","trainType","drinks","social","protein","note"]);
+const FIELDS=KEYS.concat(["wakeT","bedT","focus","trainType","social","protein","note"]);
 
 /* Weekly targets */
-const T_LIFT=3, T_RUN=2, T_DRY=4, T_DRINKS=6, T_SOCIAL=2;
+const T_LIFT=3, T_RUN=2, T_SOCIAL=2;
 
 let DB={}, CUR=isoDay(new Date()), syncTimer=null;
 
@@ -53,7 +53,7 @@ function fmtDay(s){return dayFromIso(s).toLocaleDateString(undefined,{weekday:"l
 function mins(t){if(!t)return null;const p=t.split(":");return (+p[0])*60+(+p[1]);}
 function pretty(m){m=((m%1440)+1440)%1440;let h=Math.floor(m/60),x=m%60,ap=h<12?"am":"pm",hh=h%12===0?12:h%12;return hh+":"+String(x).padStart(2,"0")+ap;}
 function blank(){return {wake:false,light:false,train:false,caff:false,block:false,log:false,
-  wakeT:"",bedT:"",focus:"",trainType:"",drinks:"",social:false,protein:false,note:"",_u:0};}
+  wakeT:"",bedT:"",focus:"",trainType:"",social:false,protein:false,note:"",_u:0};}
 /* Reading a day must never create it — browsing with Prev/Next used to leave
    an all-false record behind, which then reached the CSV, the gist and the
    adherence maths. Only save() may bring a day into existence. */
@@ -68,7 +68,7 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
 function isEmpty(r){
   if(!r)return true;
   if(KEYS.some(k=>r[k])||r.social||r.protein)return false;
-  return !["wakeT","bedT","focus","trainType","drinks","note"].some(f=>hasVal(r[f]));
+  return !["wakeT","bedT","focus","trainType","note"].some(f=>hasVal(r[f]));
 }
 function prune(db){ Object.keys(db).forEach(d=>{ if(isEmpty(db[d]))delete db[d]; }); return db; }
 
@@ -142,7 +142,6 @@ function save(){
   t.bedT=document.getElementById("fBed").value;
   t.focus=document.getElementById("fFocus").value;
   t.trainType=document.getElementById("fTrain").value;
-  t.drinks=document.getElementById("fDrinks").value;
   t.social=document.getElementById("fSocial").checked;
   t.protein=document.getElementById("fProtein").checked;
   t.note=document.getElementById("fNote").value;
@@ -158,7 +157,6 @@ function loadDay(){
   document.getElementById("fBed").value=t.bedT||"";
   document.getElementById("fFocus").value=t.focus||"";
   document.getElementById("fTrain").value=t.trainType||"";
-  document.getElementById("fDrinks").value=t.drinks||"";
   document.getElementById("fSocial").checked=!!t.social;
   document.getElementById("fProtein").checked=!!t.protein;
   document.getElementById("fNote").value=t.note||"";
@@ -197,11 +195,10 @@ function calcCaff(){
 /* ---------- week ---------- */
 function weekDays(){const out=[],now=dayFromIso(CUR);for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);out.push(isoDay(d));}return out;}
 
-function tile(id,val,target,goodWhenLow){
+function tile(id,val,target){
   const el=document.getElementById(id); if(!el)return;
   el.textContent = target===null ? val : val+"/"+target;
-  const ok = goodWhenLow ? (val<=target) : (val>=target);
-  el.style.color = target===null ? "" : (ok ? "var(--good)" : "");
+  el.style.color = target===null ? "" : (val>=target ? "var(--good)" : "");
 }
 
 function render(){
@@ -240,23 +237,18 @@ function render(){
   document.getElementById("wkBody").innerHTML=html;
 
   /* --- weekly target tiles --- */
-  let lifts=0,runs=0,dry=0,drinks=0,social=0,core3=0,logged=0;
+  let lifts=0,runs=0,social=0,core3=0,logged=0;
   days.forEach(d=>{
     const r=DB[d]; if(!r)return;
     if(r.trainType==="lift")lifts++;
     if(r.trainType==="run")runs++;
-    /* A day you never answered isn't a dry night. Only a recorded 0 counts. */
-    const dk=hasVal(r.drinks)?Number(r.drinks):null;
-    if(dk!==null && !isNaN(dk)){ drinks+=dk; if(dk===0)dry++; }
     if(r.social)social++;
     if(d<=todayIso){ logged++; if(CORE3.every(k=>r[k]))core3++; }
   });
-  tile("tLift",lifts,T_LIFT,false);
-  tile("tRun",runs,T_RUN,false);
-  tile("tDry",dry,T_DRY,false);
-  tile("tDrinks",drinks,T_DRINKS,true);
-  tile("tSocial",social,T_SOCIAL,false);
-  tile("tCore",core3,null,false);
+  tile("tLift",lifts,T_LIFT);
+  tile("tRun",runs,T_RUN);
+  tile("tSocial",social,T_SOCIAL);
+  tile("tCore",core3,null);
   document.getElementById("tCore").textContent=core3+"/7";
 
   /* --- sleep regularity --- */
@@ -291,13 +283,13 @@ function csvEsc(s){ s=String(s==null?"":s); return /[",\n\r]/.test(s) ? '"'+s.re
 function toCSV(){
   const hdr=["date","wake_within_30m","morning_light","trained","caffeine_plan","both_blocks","logged",
              "core3_all","training_type","wake_time","bed_time","sleep_hours","longest_block_min",
-             "drinks","social_contact","protein_target","note"];
+             "social_contact","protein_target","note"];
   const rows=Object.keys(DB).sort().map(d=>{
     const r=DB[d]||{}; const sm=sleepMins(r);
     return [d, r.wake?1:0, r.light?1:0, r.train?1:0, r.caff?1:0, r.block?1:0, r.log?1:0,
             CORE3.every(k=>r[k])?1:0, r.trainType||"",
             r.wakeT||"", r.bedT||"", sm===null?"":(sm/60).toFixed(2), r.focus||"",
-            r.drinks===""||r.drinks==null?"":(+r.drinks), r.social?1:0, r.protein?1:0,
+            r.social?1:0, r.protein?1:0,
             r.note||""].map(csvEsc).join(",");
   });
   return hdr.join(",")+"\n"+rows.join("\n")+"\n";

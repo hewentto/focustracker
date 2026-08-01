@@ -8,7 +8,7 @@ Design rules, in priority order:
     completely untouched and the tracker keeps working with manual entry.
 2.  GARMIN OWNS OBJECTIVE FIELDS ONLY. It writes wakeT, bedT, trainType,
     train and the wake checkbox. It never touches light, caff, block, log,
-    drinks, social, protein or note -- those are yours.
+    social, protein or note -- those are yours.
 3.  ONE API CALL SET PER DAY. Garmin rate limits at the ACCOUNT level and
     blocks last 48-72h. Sleep finalises each morning, so daily loses nothing.
 4.  TOKEN ONLY. No password ever reaches CI.
@@ -35,7 +35,7 @@ CORE3 = ("wake", "light", "train")
 CSV_HEADER = [
     "date", "wake_within_30m", "morning_light", "trained", "caffeine_plan",
     "both_blocks", "logged", "core3_all", "training_type", "wake_time",
-    "bed_time", "sleep_hours", "longest_block_min", "drinks",
+    "bed_time", "sleep_hours", "longest_block_min",
     "social_contact", "protein_target", "note",
 ]
 
@@ -57,7 +57,7 @@ def blank_day():
     return {
         "wake": False, "light": False, "train": False, "caff": False,
         "block": False, "log": False, "wakeT": "", "bedT": "", "focus": "",
-        "trainType": "", "drinks": "", "social": False, "protein": False,
+        "trainType": "", "social": False, "protein": False,
         "note": "", "_u": 0,
     }
 
@@ -105,7 +105,7 @@ def to_csv(db):
             int(bool(r.get("block"))), int(bool(r.get("log"))),
             int(all(r.get(k) for k in CORE3)),
             r.get("trainType", ""), r.get("wakeT", ""), r.get("bedT", ""),
-            sleep_hours(r), r.get("focus", ""), r.get("drinks", ""),
+            sleep_hours(r), r.get("focus", ""),
             int(bool(r.get("social"))), int(bool(r.get("protein"))),
             r.get("note", ""),
         ]))

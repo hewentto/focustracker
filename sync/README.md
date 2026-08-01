@@ -29,7 +29,7 @@ retry*. Sleep finalises each morning, so daily costs nothing.
 
 **Garmin only writes objective fields.** `wakeT`, `bedT`, `trainType`, `train`,
 and the wake-within-±30min checkbox. It never touches morning light, caffeine,
-blocks, logged, drinks, social, protein or your note — the merge is field-level,
+blocks, logged, social, protein or your note — the merge is field-level,
 not record-level, so your manual entries survive.
 
 ---
