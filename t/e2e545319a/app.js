@@ -551,7 +551,18 @@ function filteredDays() {
 }
 
 /* ---------- render ---------- */
+/* Persistent header chrome. Lives outside the four view renderers
+   because the header does: reloading on #review used to leave the week
+   label blank until you happened to visit Today. */
+function renderChrome() {
+  const hw = el("hdrWeek");
+  if (!hw) return;
+  const w = progWeek(isoDay(new Date()));
+  hw.textContent = w ? "Week " + w + (w <= 16 ? " of 16" : "") : "";
+}
+
 function render() {
+  renderChrome();
   if (VIEW === "today") renderToday();
   else if (VIEW === "programme") renderProgramme();
   else if (VIEW === "review") renderReview();
@@ -574,7 +585,11 @@ function renderToday() {
   if (bt) {
     bt.classList.toggle("away", away);
     bt.disabled = !away;
-    bt.setAttribute("aria-label", away ? "Back to today" : fmtDay(CUR) + ", today");
+    /* Keep the date in the accessible name. An aria-label REPLACES the
+       visible text, so "Back to today" alone would drop the one thing
+       this control exists to report: which day the six taps write to. */
+    bt.setAttribute("aria-label",
+      away ? fmtDay(CUR) + ", back to today" : fmtDay(CUR) + ", today");
   }
   const nx = el("btnNextDay");
   if (nx) nx.disabled = CUR >= todayIso;
@@ -614,18 +629,19 @@ function renderToday() {
   }
 
   /* The measurement sits ON the row it evidences. Before this, the
-     Garmin wake time backing tap 1 was hidden inside a collapsed panel. */
+     Garmin wake time backing tap 1 was hidden inside a collapsed panel.
+
+     Everything printed here must come from THIS day's record. There is
+     no per-day caffeine field in the schema, so the caffeine row gets
+     no measurement: showing PREFS.cDose there printed the dose you have
+     configured today onto every day in history, in the same tabular
+     style as a real Garmin reading. The caffeine card below owns that
+     number, where it is correctly labelled as a plan. */
   setText("mWake", r && r.wakeT ? r.wakeT : "");
   const sess = r ? [r.trainType, r.train2].filter(Boolean) : [];
-  setText("mTrain", r && hasVal(r.runKm) ? (+r.runKm).toFixed(1) + " km"
+  const km = r && hasVal(r.runKm) ? +r.runKm : NaN;
+  setText("mTrain", isFinite(km) && km > 0 ? km.toFixed(1) + " km"
                   : sess.length ? sess.join(" + ") : "");
-  setText("mCaff", PREFS.cDose && PREFS.cTime ? PREFS.cDose + " mg · " + PREFS.cTime : "");
-
-  const hw = el("hdrWeek");
-  if (hw) {
-    const w = progWeek(todayIso);
-    hw.textContent = w ? "Week " + w + (w <= 16 ? " of 16" : "") : "";
-  }
 
   /* Missed twice: never on a day still in progress. Flagging "Trained"
      at 9am on a day you have not finished is manufacturing a failure. */

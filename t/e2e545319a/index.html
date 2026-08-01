@@ -96,7 +96,10 @@
   body{margin:0;background:var(--surface-0);color:var(--text-primary);
     font:15px/1.55 var(--font-said);
     -webkit-font-smoothing:antialiased;}
-  .wrap{max-width:940px;margin:0 auto;padding:0 14px 96px}
+  /* The tab bar is 56px + 1px border + the home-indicator inset, and it
+     overlays scrolled content. Reserve exactly that plus the 14px card
+     rhythm, so the last card clears it by the same gap as every other. */
+  .wrap{max-width:940px;margin:0 auto;padding:0 14px calc(71px + env(safe-area-inset-bottom))}
   a{color:var(--accent);text-underline-offset:2px}
 
   /* Every focusable thing gets the same ring. The custom checkbox kills
@@ -104,7 +107,11 @@
      is unusable from a keyboard. */
   :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
     outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  /* The whole row is the focus indicator. Without the second rule the
+     checkbox draws its own ring 4px outside the row's, and the six taps
+     light up as a rectangle inside a rectangle. */
   .tapzone:focus-within{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--radius-sm)}
+  .tapzone input[type=checkbox]:focus-visible{outline:none}
 
   /* ---------- type roles ----------
      measured / said / cited. Numbers are set like a logbook entry so a
@@ -151,9 +158,9 @@
      itself is that control, and you cannot walk into the future to
      pre-tick a day that has not happened. */
   .datebar{display:flex;align-items:center;gap:6px;padding:6px 0 0}
-  .datebar .daynav{width:32px;height:32px;padding:0;flex:none;
+  .datebar .daynav{width:40px;height:40px;padding:0;flex:none;
     display:inline-flex;align-items:center;justify-content:center}
-  .datebar .daynav svg{width:14px;height:14px}
+  .datebar .daynav svg{width:15px;height:15px}
   #btnToday{flex:1;text-align:center;font-size:13px;font-weight:600;
     background:none;border:1px solid transparent;color:var(--text-primary);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -307,12 +314,16 @@
   /* ---------- form controls ---------- */
   label.f{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;
     letter-spacing:.07em;color:var(--text-secondary);margin-bottom:6px}
+  /* 16px is not a taste decision. iOS Safari zooms the viewport on focus
+     for any form control under 16px and does NOT zoom back out on blur,
+     which leaves the fixed .tabbar and sticky header wider than the
+     visual viewport until you pinch out by hand. Nothing here may go
+     below 16px -- see also input.loadin and .filters select. */
   input[type=time],input[type=number],input[type=text],input[type=password],input[type=date],select,textarea{
     width:100%;font:inherit;font-size:16px;padding:9px 10px;border-radius:var(--radius-sm);
     border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);}
   input[type=time],input[type=number],input[type=date]{font-family:var(--font-measured)}
-  select{font-size:15px}
-  textarea{resize:vertical;min-height:64px;font-size:12px;font-family:var(--font-measured)}
+  textarea{resize:vertical;min-height:64px;font-family:var(--font-measured)}
   .grid{display:grid;gap:12px}
   .g2{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
   .g3{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
@@ -396,7 +407,12 @@
   table.lift{margin-top:12px}
   table.lift td{white-space:nowrap}
   table.lift td.rowh{font-family:var(--font-said)}
-  .loadin{width:84px;font-size:13px;padding:5px 7px;font-family:var(--font-measured)}
+  /* input.loadin, not .loadin: app.js gives this input type="text", so the
+     bare class (0,1,0) loses to input[type=text] (0,1,1) and every
+     declaration is silently discarded. Padding only -- a fixed width here
+     pushes the nowrap lift table past the card interior on a 375px phone,
+     and dropping below 16px reintroduces the iOS focus zoom. */
+  input.loadin{padding:5px 8px}
   .fnload{font-family:var(--font-measured);font-weight:700;font-size:12px;white-space:nowrap}
   .fnsrc{display:block;font-family:var(--font-said);font-weight:400;font-size:10.5px;
     color:var(--text-muted)}
@@ -418,8 +434,8 @@
   .wkdots .dot.miss{border-color:var(--st-critical)}
   .pgkind{font-size:16px;font-weight:700;letter-spacing:-.01em}
   .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .filters select{width:auto;font-size:13px;padding:7px 9px;flex:1;min-width:130px}
-  .filters button{flex:none}
+  .filters select{width:auto;padding:7px 9px;flex:1;min-width:132px}  /* 16px: iOS zoom */
+  .filters button{flex:none;min-height:40px}
 
   /* Parked-item tags name a KIND of exclusion, not a severity ramp --
      so only the one that says "this actively harms" is marked. */
@@ -592,7 +608,6 @@
         <div class="item">
           <label class="tapzone"><input type="checkbox" data-k="caff" onchange="save()">
             <span class="name">Caffeine within plan</span></label>
-          <span class="meas" id="mCaff"></span>
           <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for the caffeine plan">?</button>
           <div class="evidence">Gardiner 2023 (24 studies): −45 min total sleep, −11.4 min deep sleep.
             Feeds straight back into the anchor.</div>
@@ -794,6 +809,9 @@
         <div><div class="fl" id="rvLeadLabel"></div></div>
       </div>
       <div class="chart" id="chTriage"></div>
+      <div class="legend">
+        <span><i style="background:var(--s1)"></i>Core Three</span>
+      </div>
       <div id="triageRows" style="margin-top:12px"></div>
       <p class="note" id="rvTriageSub"></p>
     </div>
