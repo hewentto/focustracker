@@ -208,6 +208,67 @@ def gist_put(gist_id, token, body, db):
     r.raise_for_status()
 
 
+def _day_of(ms):
+    """Local calendar date of an epoch-ms stamp, or "" if it isn't one.
+
+    The runner's clock is UTC and datetime.now() below is naive-local on
+    that same clock, so "same day" here means the same UTC day -- which
+    is exactly what a once-a-day cron means by it.
+    """
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def stamp_source(body, name, now_ms, through):
+    """Record that this job finished, and the newest date it has data for.
+
+    `sources` is a TOP-LEVEL key -- {name: {okAt, through}} -- sitting
+    beside `data` rather than inside any day record. That is the whole
+    point of it: provenance is a fact about the document, so it never
+    reaches blank_day(), CSV_HEADER, to_csv() or int(bool(...)), and this
+    phase adds no day field at all.
+
+    Call it on the no-op paths too. "Ran fine, found nothing" and "did
+    not run" are different facts, and with no stamp on the quiet path a
+    stream that dies is indistinguishable from a person who stopped.
+
+    Returns True only if the document actually changed, so a caller with
+    nothing else to say can skip the PATCH. A same-day re-run (the
+    workflow_dispatch button) that learned nothing new does NOT re-stamp:
+    a write, a new gist revision and a full CSV regeneration to move a
+    clock by four minutes buys nothing the date already said.
+    """
+    sources = body.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+    prev = sources.get(name)
+    if not isinstance(prev, dict):
+        prev = {}
+
+    # Never rewind `through`. This run only ever looked at its own window,
+    # so an empty answer is ignorance -- not evidence the older date was
+    # wrong. Both sides are coerced to str first because the comparison is
+    # lexicographic on ISO dates and must not raise on a stray number.
+    was = str(prev.get("through") or "")
+    best = was
+    if through and str(through) > best:
+        best = str(through)
+
+    if best == was and _day_of(prev.get("okAt")) == _day_of(now_ms):
+        return False
+
+    # dict(prev), not a fresh literal -- the same posture gist_put() takes
+    # with dict(body). If a later writer put a third key in here, keep it.
+    entry = dict(prev)
+    entry["okAt"] = now_ms
+    entry["through"] = best
+    sources[name] = entry
+    body["sources"] = sources
+    return True
+
+
 def fetch_garmin(days_back):
     """Returns {iso_date: {wakeT, bedT, trainType, train}}. Raises on auth failure."""
     from garminconnect import Garmin
@@ -311,12 +372,37 @@ def main():
             "update the GARMIN_TOKENS secret.")
         return 1
 
-    if not garmin:
-        log("nothing to write")
-        return 0
-
-    body = gist_get(gist_id, gist_token)
+    # The document has to be in hand BEFORE the "no data" exit below,
+    # because a quiet day still owes a heartbeat. But a read that failed
+    # must never turn into a write: gist_put() sets out["data"] = db AND
+    # regenerates the CSV from it, so one transient 502 followed by a
+    # heartbeat PATCH would replace the entire record with an empty one.
+    # Exit non-zero having written nothing whatsoever -- rule 1.
+    try:
+        body = gist_get(gist_id, gist_token)
+    except Exception as exc:  # noqa: BLE001
+        log("error: could not read the gist -- NOTHING was written, not even "
+            "a heartbeat. " + str(exc))
+        return 1
     db = body.get("data", {}) if isinstance(body.get("data"), dict) else {}
+
+    now_ms = int(datetime.now().timestamp() * 1000)
+    # The newest day this run actually saw data for -- empty on a quiet
+    # day, in which case stamp_source() keeps whatever an earlier run
+    # recorded. ISO keys, so max() is the latest date.
+    newest = max(garmin) if garmin else ""
+    stamped = stamp_source(body, "garmin", now_ms, newest)
+
+    if not garmin:
+        if not stamped:
+            log("nothing to write, and today's heartbeat is already stamped")
+            return 0
+        # `db` is the dict we just read, untouched, so `data` and the CSV
+        # regenerate byte-identical. The only change is sources.garmin.
+        gist_put(gist_id, gist_token, body, db)
+        log("nothing to write; stamped sources.garmin so a silent day still "
+            "reads as 'ran, found nothing'")
+        return 0
 
     # The app owns the wake targets. Reading them from the gist is what
     # stops Python judging Saturday against 06:30 and writing wake=False
@@ -331,7 +417,6 @@ def main():
     log("targets: weekday %s, weekend %s%s" % (
         _hhmm(t_week), _hhmm(t_wknd), " (from gist prefs)" if prefs else " (from env)"))
 
-    now_ms = int(datetime.now().timestamp() * 1000)
     changed = 0
 
     for iso, fields in garmin.items():
@@ -358,12 +443,19 @@ def main():
             db[iso] = rec
             changed += 1
 
-    if not changed:
+    # `stamped` keeps a genuinely quiet day from PATCHing twice a morning,
+    # but it must not suppress the write when a day did change.
+    if not changed and not stamped:
         log("no changes")
         return 0
 
+    # The only PATCH on this path -- the heartbeat rides along with the
+    # days rather than costing a second write.
     gist_put(gist_id, gist_token, body, db)
-    log("wrote " + str(changed) + " day(s) to gist; " + str(len(db)) + " total")
+    if changed:
+        log("wrote " + str(changed) + " day(s) to gist; " + str(len(db)) + " total")
+    else:
+        log("no day changed; wrote the sources.garmin heartbeat only")
     return 0
 
 

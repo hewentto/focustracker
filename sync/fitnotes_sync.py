@@ -130,6 +130,67 @@ def gist_put(gist_id, token, body):
     r.raise_for_status()
 
 
+def _day_of(ms):
+    """Local calendar date of an epoch-ms stamp, or "" if it isn't one.
+
+    time.localtime on the UTC runner is the same clock time.time() reads,
+    so "same day" here means the same UTC day -- which is what a
+    once-a-day cron means by it.
+    """
+    try:
+        return time.strftime("%Y-%m-%d", time.localtime(int(ms) / 1000))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def stamp_source(body, name, now_ms, through):
+    """Record that this job finished, and the newest date it has data for.
+
+    A deliberate hand-copy of garmin_sync.stamp_source -- these two
+    scripts already duplicate log(), gh_headers() and gist_get() rather
+    than grow a shared module, and the two must agree byte-for-byte on
+    the shape they write.
+
+    `sources` is a TOP-LEVEL key -- {name: {okAt, through}} -- sitting
+    beside `data` rather than inside any day record, so provenance never
+    reaches the day schema, the CSV or the browser's isEmpty().
+
+    Call it on the no-op paths too: "ran fine, found nothing" and "did
+    not run" are different facts, and unstamped they look identical.
+
+    Returns True only if the document actually changed, so the quiet
+    paths can skip the PATCH. A same-day re-run that learned nothing new
+    does NOT re-stamp -- a write and a new gist revision to move a clock
+    by four minutes buys nothing the date already said.
+    """
+    sources = body.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+    prev = sources.get(name)
+    if not isinstance(prev, dict):
+        prev = {}
+
+    # Never rewind `through`: a run that found no new backup is ignorant,
+    # not evidence the older date was wrong. Coerced to str because the
+    # comparison is lexicographic on ISO dates and must not raise.
+    was = str(prev.get("through") or "")
+    best = was
+    if through and str(through) > best:
+        best = str(through)
+
+    if best == was and _day_of(prev.get("okAt")) == _day_of(now_ms):
+        return False
+
+    # dict(prev), not a fresh literal: if a later writer put a third key
+    # in here, keep it.
+    entry = dict(prev)
+    entry["okAt"] = now_ms
+    entry["through"] = best
+    sources[name] = entry
+    body["sources"] = sources
+    return True
+
+
 def apply_to_body(body, parsed, stamp_ms):
     """Fold a parsed backup into the gist document. Returns days marked."""
     body["v"] = 2
@@ -196,14 +257,32 @@ def main():
     except Exception as exc:  # noqa: BLE001
         log("error: Drive fetch failed -- gist NOT modified. " + str(exc))
         return 1
+    # The document has to be in hand before EITHER quiet exit below, both
+    # of which still owe a heartbeat. Same rule as garmin_sync: a read
+    # that failed must never become a write. gist_put() PATCHes `body`
+    # wholesale, so stamping onto a document we never actually received
+    # would replace every day, every lift and every pref with nothing.
+    try:
+        body = gist_get(gist_id, gist_token)
+    except Exception as exc:  # noqa: BLE001
+        log("error: could not read the gist -- NOTHING was written, not even "
+            "a heartbeat. " + str(exc))
+        return 1
+    now_ms = int(time.time() * 1000)
+
     if not newest:
-        log("nothing to do")
+        log("nothing to do -- no backup in that folder")
+        # Ran fine, found nothing. Stamped so it does not read as a job
+        # that stopped running. `through` stays whatever it already was.
+        if stamp_source(body, "fitnotes", now_ms, ""):
+            gist_put(gist_id, gist_token, body)
         return 0
 
-    body = gist_get(gist_id, gist_token)
     fingerprint = newest["id"] + "@" + newest["modifiedTime"]
     if body.get("fitnotesSource") == fingerprint:
         log("already ingested %s -- no changes" % newest["name"])
+        if stamp_source(body, "fitnotes", now_ms, ""):
+            gist_put(gist_id, gist_token, body)
         return 0
 
     tmp = os.path.join(tempfile.gettempdir(), "latest.fitnotes")
@@ -229,6 +308,11 @@ def main():
     stamp = int(time.time() * 1000)
     marked = apply_to_body(body, parsed, stamp)
     body["fitnotesSource"] = fingerprint
+    # `range.to` is the newest day the backup itself holds, which is what
+    # "synced through" means to a reader -- not the day this job ran.
+    # The return value is ignored on purpose: there is real content to
+    # write here regardless of whether the heartbeat alone moved.
+    stamp_source(body, "fitnotes", stamp, parsed["range"]["to"])
     gist_put(gist_id, gist_token, body)
     log("wrote lifts for %d days; marked %d day(s) as lift sessions" % (t["days"], marked))
     return 0

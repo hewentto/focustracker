@@ -700,6 +700,14 @@
     </details>
   </div>
 
+  <!-- Sync freshness. Read-only: the two Actions own the `sources` key,
+       app.js only reports it. Deliberately not a callout and not a card --
+       it is status, so it takes the measured voice (.m) at the muted size
+       (.note) and nothing else. No status colour, because there is no
+       verdict here and no threshold anyone is being judged against.
+       renderSources() hides it whenever it has nothing true to say. -->
+  <div class="note m" id="srcLines" style="display:none"></div>
+
   <div class="card">
     <h2>Next up</h2>
     <div class="rx">
@@ -1059,10 +1067,10 @@
 <!-- ?v= is the cache buster. There is no build step, so bump it in the same
      commit as any change to these files or browsers will keep serving the
      old copy for as long as their heuristic freshness lasts. -->
-<script src="gate.js?v=5"></script>
-<script src="programme.js?v=5"></script>
-<script src="fitnotes.js?v=5"></script>
-<script src="charts.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="gate.js?v=6"></script>
+<script src="programme.js?v=6"></script>
+<script src="fitnotes.js?v=6"></script>
+<script src="charts.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

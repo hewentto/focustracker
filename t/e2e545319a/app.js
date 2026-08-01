@@ -40,8 +40,20 @@ let DB = {}, PREFS = Object.assign({}, DEFAULT_PREFS);
 let LIFTS = {}, LIFTS_U = 0;
 let CUR = isoDay(new Date()), syncTimer = null;
 /* Top-level gist keys we don't understand. Preserved verbatim on write
-   so a future field added by any other client isn't destroyed. */
+   so a future field added by any other client isn't destroyed. This is
+   also how `sources` reaches the reader below: it is deliberately NOT in
+   the `known` map inside syncNow(), so it lands here on read and is
+   spread back out by gistPayload() on write, untouched. Adding it there
+   would make every browser sync silently wipe both Actions' stamps. */
 let REMOTE_EXTRA = {};
+/* When this device last got a clean read of the gist. The Actions' stamps
+   are only ever as fresh as our copy of them, so every age below is
+   measured from this clock rather than from now: a phone whose token
+   expired a week ago holds a week-old `sources` and would otherwise
+   announce a perfectly healthy job as dead. 0 means we have never heard,
+   which is why the freshness lines render nothing at all until a sync
+   lands -- silence about a robot beats a guess about one. */
+let SRC_HEARD = 0;
 let VIEW = "today", WINDOW_DAYS = 56, DAYFILTER = "all", REVIEW_TABLE = false;
 
 /* ---------- gate ---------- */
@@ -143,6 +155,91 @@ function prune(db) { Object.keys(db).forEach(d => { if (isEmpty(db[d])) delete d
 function attested(r) {
   return !!r && (["light", "caff", "block", "log"].some(k => r[k]) || r.social || r.protein ||
                  ["note", "liftTpl", "focus", "skipped"].some(f => hasVal(r[f])));
+}
+
+/* ---------- source freshness ----------
+   `sources` is a TOP-LEVEL gist key, never a day field: it holds
+   {okAt, through} per writer, and living at document level is what keeps
+   it out of blank(), FIELDS, isEmpty(), toCSV() and Python's
+   int(bool(...)). Both Actions write it; this file only ever reads it.
+
+   Both crons fire once a day (.github/workflows: garmin 14:20 UTC,
+   fitnotes 14:40 UTC), so one silent morning is noise -- a busy runner
+   queue, a Drive blip. Three is the length of the account-level Garmin
+   block documented in garmin_sync.py (48-72h), which is both the most
+   likely cause of a gap and the one that clears itself. So up to three
+   silent days still get the ordinary line; past that we print the date
+   the job last worked instead, because "synced through 28 Jul" read on
+   12 Aug claims a freshness the data does not have. */
+const SRC_TOMB_DAYS = 3;
+/* Fixed order, not Object.keys(sources): a stray key some future writer
+   adds must not be able to push an unreviewed line onto Today. */
+const SRC_ORDER = ["garmin", "fitnotes"];
+
+function isIsoDay(s) { return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+/* okAt is an epoch-ms integer written by a program this file does not
+   control, so it is validated rather than trusted. Absent, zero, a
+   string or nonsense must all produce no line -- never "Invalid Date". */
+function srcDay(ms) {
+  const n = typeof ms === "number" ? ms : parseInt(ms, 10);
+  if (!isFinite(n) || n <= 0) return "";
+  const d = new Date(n);
+  return isNaN(d.getTime()) ? "" : isoDay(d);
+}
+/* Year only when it differs from the year being read in: "12 Mar" is
+   unambiguous this year and a lie about last one. Locale-driven like
+   every other date in this file, so "28 Jul" or "Jul 28" as the reader's
+   device has it. */
+function fmtSrcDay(iso, ref) {
+  const opt = { month: "short", day: "numeric" };
+  if (iso.slice(0, 4) !== ref.slice(0, 4)) opt.year = "numeric";
+  return dayFromIso(iso).toLocaleDateString(undefined, opt);
+}
+
+/* Status, not verdict: no colour token, no callout, no threshold anyone
+   is being judged against. It exists because a stream that dies in March
+   currently reads as "you did nothing" rather than "this stopped". */
+function sourceLines() {
+  const src = REMOTE_EXTRA.sources;
+  if (!SRC_HEARD || !src || typeof src !== "object") return [];
+  const now = isoDay(new Date()), heard = isoDay(new Date(SRC_HEARD));
+  const out = [];
+  SRC_ORDER.forEach(name => {
+    const s = src[name];
+    if (!s || typeof s !== "object") return;
+    const ran = srcDay(s.okAt);
+    if (!ran) return;
+    if (daysBetween(ran, heard) > SRC_TOMB_DAYS) {
+      out.push(name + ": last ran " + fmtSrcDay(ran, now) + ", nothing since");
+    } else if (isIsoDay(s.through)) {
+      out.push(name + ": synced through " + fmtSrcDay(s.through, now));
+    } else {
+      /* Ran, wrote no data, and has never had any -- a real state on a
+         fresh gist, and one that must not read as a dead job. */
+      out.push(name + ": ran " + fmtSrcDay(ran, now) + ", no data yet");
+    }
+  });
+  /* The second clock. Without it an unsynced phone reports a healthy
+     robot as dead with total confidence, because every line above is
+     really a statement about the copy of the gist we last managed to
+     read. Printed only once it has drifted past a day. */
+  if (out.length && daysBetween(heard, now) >= 1) {
+    out.push("this device last read the gist " + fmtSrcDay(heard, now) +
+             " — the lines above are that old too");
+  }
+  return out;
+}
+function renderSources() {
+  const box = el("srcLines");
+  if (!box) return;
+  const lines = sourceLines();
+  box.textContent = "";
+  box.style.display = lines.length ? "block" : "none";
+  lines.forEach(t => {
+    const row = document.createElement("div");
+    row.textContent = t;
+    box.appendChild(row);
+  });
 }
 
 /* Latched the moment any write is refused -- a full disk, Safari private
@@ -799,6 +896,11 @@ function renderToday() {
 
   const gp = el("garminPill");
   if (gp) gp.style.display = (r && (r.wakeT || r.bedT)) ? "inline-block" : "none";
+
+  /* Below the taps on purpose. The reader who needs this is the one
+     looking at an empty wake time above and wondering whether the watch
+     or the job is the thing that stopped. */
+  renderSources();
 }
 
 function meter(id, label, val, target) {
@@ -1504,9 +1606,22 @@ async function syncNow(quiet) {
               "Open the gist and check it before syncing again.");
           return;
         }
+        /* `sources` is deliberately absent from this map, and must stay
+           absent. Anything named here is claimed by this build and
+           rebuilt from local state by gistPayload(); anything not named
+           is copied into REMOTE_EXTRA and spread back verbatim. Listing
+           `sources` would hand the Actions' stamps to a writer that has
+           no idea what they mean, and every browser sync would wipe
+           them. fitnotesSource surviving here today is the proof the
+           passthrough works. */
         const known = { v: 1, data: 1, prefs: 1, lifts: 1, liftsUpdated: 1 };
         REMOTE_EXTRA = {};
         Object.keys(body).forEach(k => { if (!known[k]) REMOTE_EXTRA[k] = body[k]; });
+        /* Only here, after a read that both arrived and parsed. A failed
+           or unparseable read returns above without touching this, so
+           the freshness lines keep reporting the age of the last copy we
+           actually hold rather than pretending we just checked. */
+        SRC_HEARD = Date.now();
         DB = prune(merge(DB, body.data || {}, loadDirty()));
         /* A FitNotes export is a COMPLETE snapshot of all history, not a
            delta -- so the newer writer replaces wholesale rather than the
