@@ -15,8 +15,15 @@
     --surface-0:#f4f4f2; --surface-1:#fcfcfb; --surface-2:#eeeeeb;
     --border:#dddcd7; --border-strong:#c3c2b7;
     --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#77766f;
-    --good:#008300; --warn:#eda100; --crit:#e34948;
-    --s1:#2a78d6; --s3:#1baf7a; --s7:#4a3aa7;
+    --grid:#e1e0d9; --axis:#c3c2b7;
+    /* Categorical series slots, in fixed order. Validated: slots 1-4
+       pass every adjacent gate in both modes; all-pairs forms cap at 3. */
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+    /* Status tokens are RESERVED and never themed -- a status colour
+       must never impersonate a series, and always ships with an icon
+       and a word so it never carries meaning by hue alone. */
+    --st-good:#0ca30c; --st-warning:#fab219; --st-serious:#ec835a; --st-critical:#d03b3b;
+    --good:var(--st-good); --warn:var(--st-warning); --crit:var(--st-critical);
     --radius:10px;
   }
   @media (prefers-color-scheme: dark){
@@ -25,8 +32,8 @@
       --surface-0:#111110; --surface-1:#1a1a19; --surface-2:#242422;
       --border:#33332f; --border-strong:#4a4a45;
       --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
-      --good:#00a300; --warn:#c98500; --crit:#e66767;
-      --s1:#3987e5; --s3:#199e70; --s7:#9085e9;
+      --grid:#2c2c2a; --axis:#383835;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
     }
   }
   :root[data-theme="dark"]{
@@ -34,103 +41,217 @@
     --surface-0:#111110; --surface-1:#1a1a19; --surface-2:#242422;
     --border:#33332f; --border-strong:#4a4a45;
     --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#96958c;
-    --good:#00a300; --warn:#c98500; --crit:#e66767;
-    --s1:#3987e5; --s3:#199e70; --s7:#9085e9;
+    --grid:#2c2c2a; --axis:#383835;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
   }
 
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
   body{margin:0;background:var(--surface-0);color:var(--text-primary);
-    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom);}
-  .wrap{max-width:940px;margin:0 auto;padding:22px 18px 64px}
-  header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:6px;flex-wrap:wrap}
-  h1{font-size:22px;line-height:1.25;margin:0 0 4px;letter-spacing:-.01em}
-  .sub{color:var(--text-secondary);font-size:13.5px;margin:0;max-width:64ch}
-  .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:940px;margin:0 auto;padding:0 14px 96px}
+  h1{font-size:17px;line-height:1.2;margin:0;letter-spacing:-.01em}
+  .note{font-size:12.5px;color:var(--text-muted);line-height:1.55;margin:10px 0 0}
+  .why{font-size:12px;color:var(--text-muted);line-height:1.5;margin:6px 0 0}
+  a{color:var(--s1)}
+
   button{font:inherit;font-size:13px;padding:8px 12px;border-radius:8px;
     border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);cursor:pointer;}
   button:hover{background:var(--surface-2)}
   button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
   button:disabled{opacity:.5;cursor:default}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap}
 
-  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-top:16px}
-  .card h2{font-size:14px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 14px;font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+  /* ---------- header ---------- */
+  header.top{position:sticky;top:0;z-index:20;background:var(--surface-0);
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:10px 0 8px;border-bottom:1px solid var(--border)}
+  .iconbtn{width:38px;height:38px;padding:0;display:inline-flex;align-items:center;
+    justify-content:center;font-size:16px;border-radius:9px}
 
-  .item{display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--border)}
+  .card{background:var(--surface-1);border:1px solid var(--border);
+    border-radius:var(--radius);padding:16px;margin-top:14px}
+  .card h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--text-secondary);margin:0 0 12px;font-weight:600;
+    display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+
+  /* ---------- hero: a READ-OUT, never a control ----------
+     Sized so the six taps still clear the fold on a 375x812 phone
+     WITH the missed-twice callout showing. The taps are the thing
+     being protected; everything above them is on a budget. */
+  .hero{display:flex;align-items:center;gap:14px;padding:6px 0 2px}
+  .heronum{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1}
+  .herolab{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+  .herosub{font-size:13px;color:var(--text-secondary);margin-top:2px}
+  .coremeter{display:flex;gap:2px;margin-top:6px}
+  .coremeter .seg{flex:1;height:28px;border-radius:5px;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;font-size:10.5px;
+    color:var(--text-muted);font-weight:600;text-align:center;padding:0 2px;line-height:1.15}
+  .coremeter .seg.on{background:var(--s3);color:#fff}
+
+  .datebar{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:4px 0 0}
+  .datebar .d{font-size:13px;color:var(--text-secondary);font-weight:600;flex:1}
+  .datebar button{width:32px;height:32px;padding:0;flex:none}
+  .card.tapcard{margin-top:10px;padding:4px 14px}
+
+  /* ---------- the six taps: the only write target ---------- */
+  .item{display:flex;align-items:center;gap:12px;min-height:56px;
+    border-top:1px solid var(--border);padding:4px 0}
   .item:first-of-type{border-top:none}
-  .item input[type=checkbox]{appearance:none;width:24px;height:24px;flex:none;margin-top:1px;
-    border:2px solid var(--border-strong);border-radius:6px;background:var(--surface-1);cursor:pointer;}
+  .item.gap{border-top:2px solid var(--border-strong)}
+  .item .tapzone{flex:1;display:flex;align-items:center;gap:12px;cursor:pointer;
+    min-height:56px;-webkit-tap-highlight-color:transparent}
+  .item input[type=checkbox]{appearance:none;width:26px;height:26px;flex:none;
+    border:2px solid var(--border-strong);border-radius:7px;background:var(--surface-1);cursor:pointer;}
   .item input[type=checkbox]:checked{background:var(--s3);border-color:var(--s3)}
-  .item input[type=checkbox]:checked::after{content:"";display:block;width:6px;height:12px;margin:2px auto 0;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
-  .item .body{flex:1;min-width:0}
-  .item .name{font-weight:600;font-size:14.5px;cursor:pointer}
-  .item .why{font-size:12.5px;color:var(--text-muted);margin-top:4px;display:none;line-height:1.5}
-  .item.open .why{display:block}
-  .core-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--s1);margin-right:7px;vertical-align:2px}
-  .tag{display:inline-block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:5px;border:1px solid var(--border-strong);color:var(--text-secondary);margin-left:8px;vertical-align:1px;font-weight:600;white-space:nowrap}
-  .tag.core{border-color:var(--s1);color:var(--s1)}
+  .item input[type=checkbox]:checked::after{content:"";display:block;width:6px;height:12px;
+    margin:3px auto 0;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  .item .name{font-weight:600;font-size:14.5px;line-height:1.25}
+  .item .qual{display:block;font-weight:400;font-size:11.5px;color:var(--text-muted);margin-top:1px}
+  .item .whybtn{width:30px;height:30px;flex:none;padding:0;border-radius:50%;
+    font-size:12px;color:var(--text-muted);border-color:var(--border)}
+  .item .why{display:none}
+  .item.open .why{display:block;flex-basis:100%;padding:0 0 10px}
+  .core-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:var(--s1);margin-right:6px;vertical-align:1px}
+  .gpill{display:inline-block;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
+    padding:1px 5px;border-radius:4px;border:1px solid var(--border-strong);
+    color:var(--text-muted);margin-left:6px;vertical-align:1px;font-weight:700}
 
-  .grid{display:grid;gap:14px}
-  .g2{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
-  .g3{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
-  label.f{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:5px;font-weight:600;letter-spacing:.02em}
-  input[type=time],input[type=number],input[type=text],input[type=password],select,textarea{
-    width:100%;font:inherit;font-size:16px;padding:9px 10px;border-radius:8px;
-    border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);}
-  textarea{resize:vertical;min-height:64px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .inlinechk{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--text-secondary);padding-top:22px}
-  .inlinechk input{width:20px;height:20px;accent-color:var(--s3)}
+  /* ---------- prescription strip ---------- */
+  .rx{border-left:3px solid var(--s1);padding:8px 0 8px 12px;margin-top:4px}
+  .rx .l1{font-size:13.5px;font-weight:600;line-height:1.35}
+  .rx .l2{font-size:12.5px;color:var(--text-secondary);margin-top:3px;line-height:1.4}
+  .rx .prov{font-size:11px;color:var(--text-muted);margin-top:5px}
 
-  .verdict{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:9px;margin-top:14px;border:1px solid var(--border)}
+  /* ---------- meters ---------- */
+  .meters{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .mhead{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;color:var(--text-secondary);margin-bottom:4px}
+  .mhead b{font-variant-numeric:tabular-nums;color:var(--text-primary)}
+  .mhead b.ok{color:var(--st-good)}
+  .mtrack{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+  .mfill{display:block;height:100%;background:var(--s1);border-radius:0 4px 4px 0}
+  .mfill.ok{background:var(--st-good)}
+
+  /* ---------- status callouts: icon + word + colour, never colour alone ---------- */
+  .callout{display:none;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+    border:1px solid var(--st-critical);margin-top:8px;font-size:12.5px;line-height:1.35}
+  .callout .ic{font-weight:700;color:var(--st-critical);flex:none}
+  .callout b{color:var(--st-critical)}
+  .verdict{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:9px;
+    margin-top:12px;border:1px solid var(--border)}
   .verdict .dot{width:10px;height:10px;border-radius:50%;flex:none;margin-top:5px}
   .verdict .vt{font-weight:700;font-size:13px}
   .verdict .vd{font-size:12.5px;color:var(--text-secondary);margin-top:3px;line-height:1.5}
-  .v-good .dot{background:var(--good)} .v-good .vt{color:var(--good)}
-  .v-warn .dot{background:var(--warn)} .v-warn .vt{color:var(--warn)}
-  .v-crit .dot{background:var(--crit)} .v-crit .vt{color:var(--crit)}
+  .v-good .dot{background:var(--st-good)} .v-good .vt{color:var(--st-good)}
+  .v-warn .dot{background:var(--st-warning)} .v-warn .vt{color:#8a6100}
+  .v-crit .dot{background:var(--st-critical)} .v-crit .vt{color:var(--st-critical)}
+  :root[data-theme="dark"] .v-warn .vt,
+  @media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])) .v-warn .vt{color:var(--st-warning)}}
 
-  .stat{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px}
-  .stat div{min-width:88px}
-  .stat .n{font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
-  .stat .l{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
-
-  .tblwrap{overflow-x:auto;margin:0 -2px}
-  table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
-  th,td{padding:7px 8px;text-align:center;border-bottom:1px solid var(--border)}
-  th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:600;white-space:nowrap}
-  th.rowh,td.rowh{text-align:left;white-space:nowrap;color:var(--text-secondary);font-weight:600}
-  td.today,th.today{background:var(--surface-2)}
-  .cell{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;font-size:12px;font-weight:700;border:1px solid var(--border-strong);color:var(--text-muted);background:transparent}
-  .cell.yes{background:var(--s3);border-color:var(--s3);color:#fff}
-  .cell.flag{border-color:var(--crit);color:var(--crit);border-width:2px}
-
-  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);margin-top:12px}
-  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-
-  details{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+  label.f{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:5px;font-weight:600}
+  input[type=time],input[type=number],input[type=text],input[type=password],input[type=date],select,textarea{
+    width:100%;font:inherit;font-size:16px;padding:9px 10px;border-radius:8px;
+    border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-primary);}
+  textarea{resize:vertical;min-height:64px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+  .inlinechk{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--text-secondary)}
+  .inlinechk input{width:22px;height:22px;accent-color:var(--s3)}
+  details{margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
   summary{cursor:pointer;font-size:13px;color:var(--text-secondary);font-weight:600}
-  details p{font-size:13px;color:var(--text-secondary);line-height:1.55}
-  .note{font-size:12.5px;color:var(--text-muted);margin-top:12px;line-height:1.55}
-  .warn-box{border:1px solid var(--warn);border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--text-secondary);line-height:1.5;margin-top:6px}
-  .pill{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:99px;border:1px solid var(--border-strong);color:var(--text-muted);white-space:nowrap}
-  .pill.ok{border-color:var(--good);color:var(--good)}
-  .pill.busy{border-color:var(--s1);color:var(--s1)}
-  .pill.err{border-color:var(--crit);color:var(--crit)}
-  a{color:var(--s1)}
-  .footer{margin-top:28px;font-size:12px;color:var(--text-muted);line-height:1.6}
-  @media print{ body{background:#fff} .btnrow,details,#sync,#gate{display:none} .card{break-inside:avoid} }
 
-  #gate{position:fixed;inset:0;z-index:50;background:var(--surface-0);display:flex;align-items:center;justify-content:center;padding:24px}
+  .stat{display:flex;gap:20px;flex-wrap:wrap;margin-top:12px}
+  .stat div{min-width:74px}
+  .stat .n{font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+  .stat .l{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+  /* ---------- charts ---------- */
+  .chart{width:100%;margin-top:6px}
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary);margin-top:8px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+  .charttip{position:absolute;z-index:60;display:none;pointer-events:none;
+    background:var(--surface-1);border:1px solid var(--border-strong);border-radius:8px;
+    padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.16);max-width:240px}
+  .charttip .tiprow{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
+  .charttip b{font-weight:700;color:var(--text-primary)}
+  .charttip span{color:var(--text-secondary)}
+  .charttip .tipkey{display:inline-block;width:10px;height:3px;border-radius:2px}
+
+  /* ---------- triage ---------- */
+  .trow{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+  .trow:first-child{border-top:none}
+  .tname{flex:1;color:var(--text-secondary);font-weight:600}
+  .tcount{font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:12px}
+  .chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;
+    border:1px solid var(--border-strong);color:var(--text-muted);white-space:nowrap}
+  .chip.keep{border-color:var(--st-good);color:var(--st-good)}
+  .chip.watch{border-color:var(--st-warning);color:#8a6100}
+  .chip.park{border-color:var(--st-serious);color:#a84a1e}
+  .parkbtn{margin-left:6px;padding:1px 6px;font-size:10.5px;border-radius:5px}
+  .unpark{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:6px 0;border-top:1px solid var(--border);font-size:12.5px}
+
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:600;white-space:nowrap}
+  td.rowh{white-space:nowrap;color:var(--text-secondary);font-weight:600}
+  td.empty{color:var(--text-muted);text-align:center;padding:18px}
+  .notecell{color:var(--text-primary)}
+  .misscell{color:var(--text-muted);font-size:11.5px}
+  .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .scrollx table{min-width:900px}
+  .scrolly{max-height:420px;overflow-y:auto}
+  table.lift{margin-top:10px;font-size:12.5px}
+  table.lift td{white-space:nowrap}
+  .loadin{width:78px;font-size:13px;padding:4px 6px}
+
+  /* ---------- programme rail ---------- */
+  .rail{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;margin-top:10px}
+  .wkcell{background:var(--surface-2);border-radius:5px;padding:5px 0 4px;text-align:center}
+  .wkcell b{font-size:9.5px;color:var(--text-muted);font-weight:600;display:block}
+  .wkcell.now{outline:2px solid var(--s1)}
+  .wkcell.past{opacity:.85}
+  .wkdots{display:flex;justify-content:center;gap:2px;margin-top:3px}
+  .wkdots .dot{width:8px;height:8px;border-radius:50%;border:1px solid var(--border-strong);display:block}
+  .wkdots .dot.done{background:var(--s3);border-color:var(--s3)}
+  .wkdots .dot.miss{border-color:var(--st-critical)}
+  .pgkind{font-size:15px;font-weight:700}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+  .filters select{width:auto;font-size:13px;padding:6px 8px}
+  .ptag{float:right;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;
+    padding:1px 6px;border-radius:4px;border:1px solid var(--border-strong);color:var(--text-muted);font-weight:700}
+  .ptag.counterproductive{border-color:var(--st-critical);color:var(--st-critical)}
+  .ptag.null,.ptag.unsupported{border-color:var(--st-serious);color:#a84a1e}
+
+  /* ---------- bottom tab bar ---------- */
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+    background:var(--surface-1);border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom)}
+  .tabbar button{flex:1;height:56px;border:none;border-radius:0;background:none;
+    font-size:12px;font-weight:600;color:var(--text-muted);display:flex;
+    flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  .tabbar button .ti{font-size:16px;line-height:1}
+  .tabbar button.on{color:var(--s1)}
+  .tabbar button:hover{background:var(--surface-2)}
+
+  @media print{ body{background:#fff} .tabbar,.btnrow,#gate{display:none} .card{break-inside:avoid} }
+
+  #gate{position:fixed;inset:0;z-index:50;background:var(--surface-0);display:flex;
+    align-items:center;justify-content:center;padding:24px}
   #gate .box{width:100%;max-width:380px}
-  #gate h2{font-size:16px;margin:0 0 6px;text-transform:none;letter-spacing:normal;color:var(--text-primary);display:block}
+  #gate h2{font-size:16px;margin:0 0 6px;color:var(--text-primary)}
   #gate p{font-size:12.5px;color:var(--text-muted);margin:0 0 16px;line-height:1.5}
   #gate .row{display:flex;gap:8px}
   #gate input{flex:1}
-  #gate .err{color:var(--crit);font-size:12.5px;margin-top:10px;min-height:1.2em}
-  #gate .mk{margin-top:22px;border-top:1px solid var(--border);padding-top:14px}
-  #gate .mk summary{font-size:12.5px}
-  #gate code{display:block;word-break:break-all;background:var(--surface-2);padding:8px 10px;border-radius:7px;font-size:11.5px;margin-top:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #gate .err{color:var(--st-critical);font-size:12.5px;margin-top:10px;min-height:1.2em}
+  #gate code{display:block;word-break:break-all;background:var(--surface-2);padding:8px 10px;
+    border-radius:7px;font-size:11.5px;margin-top:10px;font-family:ui-monospace,Menlo,monospace}
   #app{display:none}
 </style>
 </head>
@@ -141,203 +262,441 @@
     <h2>Locked</h2>
     <p>Enter your passphrase. This device will remember it — once per browser, then never again.</p>
     <div class="row">
-      <input type="password" id="gPass" placeholder="passphrase" autocomplete="current-password" onkeydown="if(event.key==='Enter')tryUnlock()">
+      <input type="password" id="gPass" placeholder="passphrase" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')tryUnlock()">
       <button class="primary" onclick="tryUnlock()">Unlock</button>
     </div>
     <div class="err" id="gErr"></div>
-    <details class="mk">
+    <details>
       <summary>Set or change the passphrase</summary>
-      <p style="margin-top:10px">Type the passphrase you want, copy the hash, paste it into <code style="display:inline;padding:1px 4px">GATE_HASH</code> in <code style="display:inline;padding:1px 4px">gate.js</code>. One line, one commit.</p>
+      <p style="margin-top:10px">Type the passphrase you want, copy the hash, paste it into
+        <code style="display:inline;padding:1px 4px">GATE_HASH</code> in
+        <code style="display:inline;padding:1px 4px">gate.js</code>.</p>
       <div class="row"><input type="text" id="gNew" placeholder="new passphrase" autocomplete="off" oninput="mkHash()"></div>
       <code id="gHash">—</code>
     </details>
   </div>
 </div>
 
-<div class="wrap" id="app">
+<div id="app">
+<div class="wrap">
 
 <header class="top">
-  <div>
-    <h1>Building the Best Jared</h1>
-    <p class="sub">Six one-tap dailies, five weekly targets. The three with a <span class="core-dot"></span> dot are the <strong>Core Three</strong> — hit those on a bad day and the day counts. Full reasoning and the training programme: <a href="https://github.com/hewentto/focustracker/blob/main/PLAN.md">PLAN.md</a>.</p>
-  </div>
+  <h1>Building the Best Jared</h1>
   <div class="btnrow">
-    <button onclick="toggleTheme()">◐ Theme</button>
-    <button onclick="shiftDay(-1)">← Prev</button>
-    <button onclick="goToday()">Today</button>
-    <button onclick="shiftDay(1)">Next →</button>
-    <button onclick="lockNow()">Lock</button>
+    <button class="iconbtn" onclick="toggleTheme()" aria-label="Toggle theme" title="Theme">◐</button>
+    <button class="iconbtn" onclick="go('setup')" aria-label="Setup" title="Setup">⚙</button>
   </div>
 </header>
 
-<div class="card">
-  <h2><span>Log &mdash; <span id="todayLabel"></span></span><span class="pill" id="savePill">saves automatically</span></h2>
+<!-- ======================= TODAY ======================= -->
+<div id="v-today">
 
-  <div class="item">
-    <input type="checkbox" data-k="wake" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)"><span class="core-dot"></span>Woke within ±30 min of target <span class="tag core">Anchor</span></div>
-      <div class="why">The gate on everything else — including whether the 6/7am session happens. Windred 2024 (N=60,977): sleep regularity predicted mortality better than duration, and duration added nothing once regularity was in the model. Your 7.5h average is fine; the variance isn't.</div>
+  <div class="datebar">
+    <button onclick="shiftDay(-1)" aria-label="Previous day">←</button>
+    <span class="d" id="todayLabel"></span>
+    <span class="pill" id="savePill">saves automatically</span>
+    <button onclick="shiftDay(1)" aria-label="Next day">→</button>
+  </div>
+
+  <div class="hero">
+    <div class="heronum" id="heroNum">0/3</div>
+    <div>
+      <div class="herolab">Core Three · today</div>
+      <div class="herosub" id="heroSub"></div>
+    </div>
+  </div>
+  <div class="coremeter" id="coreMeter" aria-hidden="true"></div>
+
+  <div class="callout" id="missedTwice">
+    <span class="ic" aria-hidden="true">!</span>
+    <div><b>Missed twice</b> — <span id="missedTwiceText"></span></div>
+  </div>
+
+  <div class="card tapcard">
+    <div id="tapList">
+      <div class="item">
+        <label class="tapzone"><input type="checkbox" data-k="wake" onchange="save()">
+          <span class="name"><span class="core-dot"></span>Woke within ±30 min of target<span class="gpill" id="garminPill">Garmin</span></span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">The gate on everything else. Windred 2024 (N=60,977): sleep regularity predicted
+          mortality better than duration, and duration added nothing once regularity was in the model.</div>
+      </div>
+      <div class="item">
+        <label class="tapzone"><input type="checkbox" data-k="light" onchange="save()">
+          <span class="name"><span class="core-dot"></span>Outside within 90 min of waking
+            <span class="qual">10+ minutes. The lever that actually moves the hour.</span></span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">The strongest causal mechanism in the review. Wright et al. 2013: one week of
+          natural light advanced melatonin onset ~2 hours, within-subject, objective endpoint — and late
+          chronotypes shifted most. Phase-resetting is daily by nature; a long Saturday walk does nothing for Tuesday.</div>
+      </div>
+      <div class="item">
+        <label class="tapzone"><input type="checkbox" data-k="train" onchange="save()">
+          <span class="name"><span class="core-dot"></span>Trained — lift, run, or stair snacks</span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">Exercise logging is the only self-monitoring category that survives long-term:
+          61% sustained at 11 months vs 21% for diet logging. Missed the run? 3 × 30 s all-out stair climbs
+          counts — that protocol produced +7% VO2peak from ~27 total minutes of work over 6 weeks.</div>
+      </div>
+      <div class="item gap">
+        <label class="tapzone"><input type="checkbox" data-k="caff" onchange="save()">
+          <span class="name">Caffeine within plan</span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">Gardiner 2023 (24 studies): −45 min total sleep, −11.4 min deep sleep.
+          Feeds straight back into the anchor.</div>
+      </div>
+      <div class="item">
+        <label class="tapzone"><input type="checkbox" data-k="block" onchange="save()">
+          <span class="name">Both binding blocks ran
+            <span class="qual">phone <em>and</em> laptop</span></span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">WEIS 2017 (N=455): imposed blocking +22–24% productivity; the identical tool under
+          user control produced nothing, with 30% never switching it on. If you can dismiss it in one tap it's a dashboard.</div>
+      </div>
+      <div class="item">
+        <label class="tapzone"><input type="checkbox" data-k="log" onchange="save()">
+          <span class="name">Logged today, in writing</span></label>
+        <button class="whybtn" onclick="toggleWhy(this)" aria-label="Why this item">?</button>
+        <div class="why">Harkin 2016 (138 RCTs, N=19,951): progress monitoring → goal attainment d+ = 0.40,
+          and recorded beats unrecorded. Monitoring behaviour improves behaviour (0.79); monitoring outcomes
+          improves outcomes (0.62). They don't cross over — which is why this counts behaviours, not tickets.</div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:12px">
+      <div><label class="f" for="fNote">One line: what actually got in the way today?</label>
+        <input type="text" id="fNote" placeholder="vague ticket / late night / meeting-shredded / fine" onchange="save()"></div>
+    </div>
+
+    <details>
+      <summary>Details — times, session type, distance</summary>
+      <div class="grid g3" style="margin-top:10px">
+        <div><label class="f" for="fWake">Wake time</label><input type="time" id="fWake" onchange="save()"></div>
+        <div><label class="f" for="fBed">Bedtime the night before</label><input type="time" id="fBed" onchange="save()"></div>
+        <div><label class="f" for="fTrain">Session type</label>
+          <select id="fTrain" onchange="save()">
+            <option value="">— none —</option><option value="lift">Lift</option>
+            <option value="run">Run</option><option value="snack">Stair snacks</option>
+            <option value="other">Other</option>
+          </select></div>
+        <div><label class="f" for="fTrain2">Second session</label>
+          <select id="fTrain2" onchange="save()">
+            <option value="">— none —</option><option value="lift">Lift</option>
+            <option value="run">Run</option><option value="snack">Stair snacks</option>
+            <option value="other">Other</option>
+          </select></div>
+        <div><label class="f" for="fRunKm">Run distance (km)</label>
+          <input type="number" id="fRunKm" min="0" max="100" step="0.1" placeholder="Garmin fills this" onchange="save()"></div>
+        <div><label class="f" for="fLiftTpl">Lift template</label>
+          <select id="fLiftTpl" onchange="save()">
+            <option value="">— auto —</option><option value="A">A</option><option value="B">B</option>
+          </select></div>
+      </div>
+      <div class="grid g2" style="margin-top:10px">
+        <div class="inlinechk"><input type="checkbox" id="fSocial" onchange="save()">
+          <label for="fSocial">Substantive social contact <span class="qual">≥30 min, non-work, ≥1 in person this week</span></label></div>
+        <div class="inlinechk"><input type="checkbox" id="fProtein" onchange="save()">
+          <label for="fProtein">Hit protein target</label></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Next up</h2>
+    <div class="rx">
+      <div class="l1" id="rxLine1">—</div>
+      <div class="l2" id="rxLine2"></div>
+      <div class="prov" id="rxProv"></div>
+    </div>
+    <div id="rescue" style="display:none">
+      <div class="verdict v-warn"><div class="dot"></div><div>
+        <div class="vt">Run day, still no run</div>
+        <div class="vd" id="rescueText"></div>
+      </div></div>
+    </div>
+    <button style="margin-top:10px" onclick="go('programme')">Open the programme →</button>
+  </div>
+
+  <div class="card">
+    <h2>This week</h2>
+    <div class="meters">
+      <div id="mLift"></div><div id="mRun"></div><div id="mSocial"></div>
+      <div id="mProtein"></div><div id="mCore"></div>
+    </div>
+    <p class="note">Calendar week, Monday to Sunday. Counts, not pass/fail — under target is never red,
+      because it is only Thursday. Targets: 3 lifts, 2 runs, 2 substantive social contacts, protein on 5+ days.</p>
+  </div>
+
+  <div class="card">
+    <h2><span>Caffeine cutoff</span><span class="pill" id="caffSummary"></span></h2>
+    <details>
+      <summary>Adjust dose, timing and half-life</summary>
+      <div class="grid g3" style="margin-top:10px">
+        <div><label class="f" for="cDose">Dose (mg)</label>
+          <input type="number" id="cDose" value="160" min="0" max="600" step="10" oninput="calcCaff();savePrefs()"></div>
+        <div><label class="f" for="cTime">Taken at</label>
+          <input type="time" id="cTime" value="12:30" oninput="calcCaff();savePrefs()"></div>
+        <div><label class="f" for="cBed">Target bedtime</label>
+          <input type="time" id="cBed" value="23:00" oninput="calcCaff();savePrefs()"></div>
+        <div><label class="f" for="cHalf">Your half-life</label>
+          <select id="cHalf" onchange="calcCaff();savePrefs()">
+            <option value="4">4h — fast metaboliser</option>
+            <option value="5" selected>5h — typical</option>
+            <option value="6">6h — slowish</option>
+            <option value="8">8h — slow (~54% carry the variant)</option>
+          </select></div>
+      </div>
+      <div class="stat">
+        <div><div class="n" id="cMg">—</div><div class="l">mg at bedtime</div></div>
+        <div><div class="n" id="cPct">—</div><div class="l">% of dose left</div></div>
+        <div><div class="n" id="cCut">—</div><div class="l">latest safe time</div></div>
+      </div>
+      <div class="verdict" id="cVerdict"><div class="dot"></div>
+        <div><div class="vt" id="cvT">—</div><div class="vd" id="cvD">—</div></div></div>
+    </details>
+  </div>
+</div>
+
+<!-- ======================= PROGRAMME ======================= -->
+<div id="v-programme" style="display:none">
+  <div class="hero">
+    <div class="heronum" id="pgWeekNum">—</div>
+    <div><div class="herolab">Week</div><div class="herosub" id="pgWeekOf"></div></div>
+  </div>
+  <p class="note" id="pgHorizon"></p>
+
+  <div class="card">
+    <h2>Today's session</h2>
+    <div id="pgToday"></div>
+    <div id="pgCeiling" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>The 16 weeks</h2>
+    <div class="rail" id="pgRail"></div>
+    <div class="legend">
+      <span><i style="background:var(--s3)"></i>Run logged</span>
+      <span><i style="border:1px solid var(--st-critical)"></i>Planned, not logged</span>
+      <span><i style="border:1px solid var(--border-strong)"></i>Still ahead</span>
+    </div>
+    <p class="why" id="pgInjury"></p>
+    <div style="margin-top:12px">
+      <label class="f" for="pgW17">Week 17 — what happens when the programme ends?</label>
+      <input type="text" id="pgW17" placeholder="Decide this now, in week 1." onchange="saveW17()">
+      <p class="why">Fokkema 2018 followed 774 novice runners: the strongest modifiable dropout predictor was
+        <em>uncertainty about continuing after the programme</em> (OR 2.06). So decide now what happens in
+        week 17, before week 1.</p>
     </div>
   </div>
 
-  <div class="item">
-    <input type="checkbox" data-k="light" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)"><span class="core-dot"></span>Outside within 90 min of waking, 10+ min <span class="tag core">Core</span></div>
-      <div class="why">The strongest causal mechanism in the whole review. Wright et al. 2013: one week of natural light advanced melatonin onset <strong>~2 hours</strong>, within-subject, objective endpoint — and late chronotypes shifted most. Phase-resetting is daily by nature; a long Saturday walk does nothing for Tuesday.</div>
-    </div>
+  <div class="card">
+    <h2>Guardrails</h2>
+    <ul class="note" id="pgGuards" style="padding-left:18px"></ul>
+    <p class="why" id="pgTenPct"></p>
+    <p class="why" id="pgConcurrent"></p>
   </div>
 
-  <div class="item">
-    <input type="checkbox" data-k="train" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)"><span class="core-dot"></span>Trained — lift, run, or stair snacks <span class="tag core">Core</span></div>
-      <div class="why">One binary for all movement. Exercise logging is the only self-monitoring category that survives long-term: <strong>61% sustained at 11 months</strong> vs 21% for diet logging. Missed the run? 3 × 30 s all-out stair climbs counts — that protocol produced <strong>+7% VO2peak</strong> from ~27 total minutes of work over 6 weeks.</div>
-    </div>
+  <div class="card">
+    <h2>Lifting</h2>
+    <p class="note" id="pgSets"></p>
+    <ul class="note" id="pgNegations" style="padding-left:18px"></ul>
   </div>
 
-  <div class="item">
-    <input type="checkbox" data-k="caff" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)">Caffeine within plan</div>
-      <div class="why">Gardiner 2023 (24 studies): −45 min total sleep, −11.4 min deep sleep. Feeds straight back into the anchor. Every-other-day dosing also parks your off-days inside the 12–51h withdrawal window, whose symptom list is your chief complaint.</div>
-    </div>
+  <div class="card">
+    <h2>What to expect</h2>
+    <ul class="note" id="pgExpect" style="padding-left:18px"></ul>
   </div>
+</div>
 
-  <div class="item">
-    <input type="checkbox" data-k="block" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)">Both binding blocks ran — phone <em>and</em> laptop</div>
-      <div class="why">WEIS 2017 (N=455): imposed blocking <strong>+22–24% productivity</strong>; the identical tool under user control produced nothing, with 30% never switching it on. If you can dismiss it in one tap it's a dashboard.</div>
-    </div>
-  </div>
-
-  <div class="item">
-    <input type="checkbox" data-k="log" onchange="save()">
-    <div class="body">
-      <div class="name" onclick="toggleWhy(this)">Logged today, in writing</div>
-      <div class="why">Harkin 2016 (138 RCTs, N=19,951): progress monitoring → goal attainment <strong>d+ = 0.40</strong>, and recorded beats unrecorded. Monitoring behaviour improves behaviour (0.79); monitoring outcomes improves outcomes (0.62). They don't cross over — which is why this counts behaviours, not tickets.</div>
-    </div>
-  </div>
-
-  <div class="grid g3" style="margin-top:16px">
-    <div><label class="f" for="fWake">Wake time</label><input type="time" id="fWake" onchange="save()"></div>
-    <div><label class="f" for="fBed">Bedtime the night before</label><input type="time" id="fBed" onchange="save()"></div>
-    <div><label class="f" for="fTrain">Session type</label>
-      <select id="fTrain" onchange="save()">
-        <option value="">— none —</option>
-        <option value="lift">Lift</option>
-        <option value="run">Run</option>
-        <option value="snack">Stair snacks</option>
-        <option value="other">Other</option>
+<!-- ======================= REVIEW ======================= -->
+<div id="v-review" style="display:none">
+  <div class="card">
+    <h2>Scope</h2>
+    <div class="filters">
+      <select onchange="setWindow(this.value)" aria-label="Time window">
+        <option value="28">Last 4 weeks</option>
+        <option value="56" selected>Last 8 weeks</option>
+        <option value="84">Last 12 weeks</option>
+        <option value="365">Last year</option>
       </select>
-    </div>
-    <div><label class="f" for="fFocus">Longest unbroken work block (min)</label><input type="number" id="fFocus" min="0" max="600" step="5" placeholder="e.g. 45" onchange="save()"></div>
-    <div class="inlinechk"><input type="checkbox" id="fSocial" onchange="save()"><label for="fSocial">Substantive social contact</label></div>
-    <div class="inlinechk"><input type="checkbox" id="fProtein" onchange="save()"><label for="fProtein">Hit protein target</label></div>
-  </div>
-  <div class="grid" style="margin-top:14px">
-    <div><label class="f" for="fNote">One line: what actually got in the way today?</label><input type="text" id="fNote" placeholder="vague ticket / late night / meeting-shredded / fine" onchange="save()"></div>
-  </div>
-</div>
-
-<div class="card">
-  <h2>Weekly targets</h2>
-  <div class="stat">
-    <div><div class="n" id="tLift">—</div><div class="l">lifts</div></div>
-    <div><div class="n" id="tRun">—</div><div class="l">runs</div></div>
-    <div><div class="n" id="tSocial">—</div><div class="l">social contacts</div></div>
-    <div><div class="n" id="tCore">—</div><div class="l">core-three days</div></div>
-  </div>
-  <p class="note">Counts, not pass/fail — daily prompts for low-salience behaviours are exactly where tracking collapses. Targets: 3 lifts, 2 runs, 2 substantive social contacts. Also weekly but not tracked here: 120 min outdoors, protein on 5+ days. Rationale in <a href="https://github.com/hewentto/focustracker/blob/main/PLAN.md">PLAN.md</a>.</p>
-</div>
-
-<div class="card">
-  <h2>Caffeine calculator</h2>
-  <div class="grid g3">
-    <div><label class="f" for="cDose">Dose (mg)</label><input type="number" id="cDose" value="160" min="0" max="600" step="10" oninput="calcCaff();savePrefs()"></div>
-    <div><label class="f" for="cTime">Taken at</label><input type="time" id="cTime" value="12:30" oninput="calcCaff();savePrefs()"></div>
-    <div><label class="f" for="cBed">Target bedtime</label><input type="time" id="cBed" value="23:00" oninput="calcCaff();savePrefs()"></div>
-    <div><label class="f" for="cHalf">Your half-life</label>
-      <select id="cHalf" onchange="calcCaff();savePrefs()">
-        <option value="4">4h — fast metaboliser</option>
-        <option value="5" selected>5h — typical</option>
-        <option value="6">6h — slowish</option>
-        <option value="8">8h — slow (~54% carry the variant)</option>
+      <select onchange="setDayFilter(this.value)" aria-label="Day filter">
+        <option value="all">All days</option>
+        <option value="weekdays">Weekdays only</option>
+        <option value="weekends">Weekends only</option>
       </select>
+      <button onclick="toggleReviewTable()"><span id="rvToggle">Show table</span></button>
+    </div>
+    <p class="note"><b id="rvCoverage">—</b> — every percentage below is read against this.</p>
+    <div style="margin-top:10px">
+      <div class="mhead"><span id="rvReviewDate">—</span></div>
+      <div class="mtrack"><i class="mfill" id="rvReviewMeter" style="width:0%"></i></div>
+    </div>
+    <p class="note" id="rvFraming"></p>
+  </div>
+
+  <div id="rvCharts">
+    <div class="card">
+      <h2>What's actually getting ticked</h2>
+      <div class="hero" style="padding-top:0">
+        <div class="heronum" id="rvLead" style="font-size:40px">—</div>
+        <div><div class="herolab" id="rvLeadLabel"></div></div>
+      </div>
+      <div class="chart" id="chTriage"></div>
+      <div id="triageRows" style="margin-top:10px"></div>
+      <p class="note" id="rvTriageSub"></p>
+    </div>
+
+    <div class="card">
+      <h2>Wake time — the diagnosis</h2>
+      <div class="chart" id="chWake"></div>
+      <div class="legend">
+        <span><i style="background:var(--s1)"></i>Weekday</span>
+        <span><i style="background:var(--text-muted)"></i>Weekend</span>
+        <span><i style="background:var(--s1);opacity:.25;border-radius:2px"></i>±30 min target band</span>
+      </div>
+      <div class="stat">
+        <div><div class="n" id="wkMedian">—</div><div class="l">median wake</div></div>
+        <div><div class="n" id="wkIQR">—</div><div class="l">IQR</div></div>
+        <div><div class="n" id="wkNight">—</div><div class="l">night-to-night</div></div>
+        <div><div class="n" id="wkBand">—</div><div class="l">inside band</div></div>
+        <div><div class="n" id="wkSleep">—</div><div class="l">median sleep</div></div>
+      </div>
+      <div class="verdict" id="wkVerdict"><div class="dot"></div>
+        <div><div class="vt" id="wkvT">—</div><div class="vd" id="wkvD">—</div></div></div>
+      <p class="why">Night-to-night change is shown instead of max-minus-min, which one outlier destroys.
+        Sleep duration is deliberately a single number and not a chart: Windred 2024 found duration added
+        nothing once regularity was in the model.</p>
+    </div>
+
+    <div class="card">
+      <h2>The record</h2>
+      <div class="chart" id="chHeat"></div>
+      <div class="legend">
+        <span><i style="background:var(--s3);border-radius:2px"></i>Done</span>
+        <span><i style="background:var(--surface-2);border-radius:2px"></i>Not done</span>
+        <span><i style="border:1.5px solid var(--st-critical);border-radius:2px"></i>Missed twice running</span>
+        <span><i style="background:var(--s1);border-radius:50%"></i>Core Three</span>
+      </div>
+      <p class="note">One column is one day. No aggregation — a bad week stays visible as itself instead of
+        being averaged into a number that hides it. Today is never flagged: a day still in progress has not been missed.</p>
+    </div>
+
+    <div class="card">
+      <h2><span>Notes</span><span class="pill" id="rvNoteCount"></span></h2>
+      <div class="scrolly"><table><thead><tr><th>Day</th><th>What got in the way</th><th>Missed</th></tr></thead>
+        <tbody id="noteRows"></tbody></table></div>
     </div>
   </div>
-  <div class="stat">
-    <div><div class="n" id="cMg">—</div><div class="l">mg at bedtime</div></div>
-    <div><div class="n" id="cPct">—</div><div class="l">% of dose left</div></div>
-    <div><div class="n" id="cCut">—</div><div class="l">latest safe time</div></div>
-  </div>
-  <div class="verdict" id="cVerdict"><div class="dot"></div><div><div class="vt" id="cvT">—</div><div class="vd" id="cvD">—</div></div></div>
-</div>
 
-<div class="card">
-  <h2>Last 7 days</h2>
-  <div class="tblwrap"><table><thead><tr id="wkHead"></tr></thead><tbody id="wkBody"></tbody></table></div>
-  <div class="legend">
-    <span><i style="background:var(--s3)"></i>Done</span>
-    <span><i style="border:1px solid var(--border-strong)"></i>Not done</span>
-    <span><i style="border:2px solid var(--crit)"></i>Missed twice running — the only streak rule with evidence behind it</span>
-    <span><span class="core-dot"></span>Core Three</span>
+  <div id="rvTable" style="display:none">
+    <div class="card">
+      <h2>Every logged day</h2>
+      <div class="scrollx"><table>
+        <thead><tr><th>Day</th><th>Wake</th><th>Light</th><th>Train</th><th>Caff</th><th>Block</th><th>Log</th>
+          <th>Woke</th><th>Bed</th><th>Sleep</th><th>Session</th><th>2nd</th><th>Run</th><th>Social</th><th>Protein</th><th>Note</th></tr></thead>
+        <tbody id="twinBody"></tbody></table></div>
+      <div class="btnrow" style="margin-top:12px">
+        <button onclick="downloadCSV()">Download CSV</button>
+        <button onclick="openGist()">Open gist</button>
+      </div>
+      <p class="note">§9 says look at the CSV. This is it, on screen.</p>
+    </div>
   </div>
 
-  <div class="stat" style="margin-top:18px">
-    <div><div class="n" id="sWakeSpread">—</div><div class="l">wake-time spread</div></div>
-    <div><div class="n" id="sSleep">—</div><div class="l">avg sleep</div></div>
-    <div><div class="n" id="sAdh">—</div><div class="l">behaviours hit</div></div>
-    <div><div class="n" id="sFocus">—</div><div class="l">avg longest block</div></div>
+  <div class="card">
+    <h2>What this view refuses to do</h2>
+    <p class="note">No composite score, no outcome metrics, no correlations between the ten binaries
+      (45 pairwise comparisons at n=56 is a p-hacking machine), and no projections. Monitoring behaviour
+      improves behaviour; monitoring outcomes improves outcomes. They do not cross over.</p>
+  </div>
+</div>
+
+<!-- ======================= SETUP ======================= -->
+<div id="v-setup" style="display:none">
+  <div class="card">
+    <h2>Programme</h2>
+    <div class="grid g2">
+      <div><label class="f" for="sProgStart">Programme start date</label>
+        <input type="date" id="sProgStart" onchange="savePrefsFromSetup()"></div>
+      <div><label class="f" for="sTargetWake">Target wake — weekdays</label>
+        <input type="time" id="sTargetWake" onchange="savePrefsFromSetup()"></div>
+      <div><label class="f" for="sTargetWakeWknd">Target wake — weekends</label>
+        <input type="time" id="sTargetWakeWknd" onchange="savePrefsFromSetup()"></div>
+      <div><label class="f" for="sBodyweight">Bodyweight (kg)</label>
+        <input type="number" id="sBodyweight" min="30" max="250" step="0.5" onchange="savePrefsFromSetup()"></div>
+      <div><label class="f" for="sHrMax">Max heart rate (bpm)</label>
+        <input type="number" id="sHrMax" min="120" max="220" step="1" onchange="savePrefsFromSetup()"></div>
+    </div>
+    <p class="note">Protein target: <b id="sProteinTarget">—</b></p>
+    <p class="why" id="sProteinNote"></p>
+    <p class="why" id="sHrNote"></p>
   </div>
 
-  <div class="verdict" id="rVerdict"><div class="dot"></div><div><div class="vt" id="rvT">—</div><div class="vd" id="rvD">—</div></div></div>
-
-  <details><summary>Why "missed twice" and not "don't break the chain"</summary>
-    <p>Lally et al. 2010 measured what a missed day actually costs: <strong>0.29 automaticity points, no significant long-term effect</strong>, and non-consecutive performance still built the habit. Streak-loss mechanics manufacture a failure the data says didn't happen. <strong>"Never miss twice" is supported. "Never miss once" is not.</strong></p>
-  </details>
-  <details><summary>Why the wake time is rigid and everything else isn't</summary>
-    <p>Beshears et al. 2021 (<em>Management Science</em>) ran the only head-to-head test: rigid same-time-every-day incentives produced <em>fewer</em> sessions than flexible ones, and a larger drop-off afterwards. The wake time is the exception because it's a circadian anchor, not a habit slot — and because your training adherence is visibly downstream of it.</p>
-  </details>
-</div>
-
-<div class="card" id="sync">
-  <h2><span>Storage &amp; sync</span><span class="pill" id="syncPill">not configured</span></h2>
-  <p class="note" style="margin-top:0">Saves automatically in this browser. To keep it in a real file and share it across devices, paste a GitHub token once per device — each sync writes <strong>two files into a secret Gist</strong> on your account: <code>focus-tracker-data.json</code> (merging) and <code>focus-log.csv</code> (opens in Excel). <strong>Nothing is written to the public repo</strong> — the passphrase gate protects this page, not the repo, and git history is permanent.</p>
-
-  <div class="grid g2" style="margin-top:14px">
-    <div><label class="f" for="ghTok">GitHub fine-grained token (Gists: Read and write)</label>
-      <input type="password" id="ghTok" placeholder="github_pat_..." autocomplete="off"></div>
-    <div><label class="f" for="ghGist">Gist ID <span style="font-weight:400">— blank to create one</span></label>
-      <input type="text" id="ghGist" placeholder="auto-created on first sync" autocomplete="off"></div>
+  <div class="card" id="sync">
+    <h2><span>Storage &amp; sync</span><span class="pill" id="syncPill">not configured</span></h2>
+    <p class="note" style="margin-top:0">Saves automatically in this browser. To share across devices, paste a
+      GitHub token once per device — each sync writes <code>focus-tracker-data.json</code> and
+      <code>focus-log.csv</code> into a <strong>secret Gist</strong> on your account.
+      Nothing is written to the public repo.</p>
+    <div class="grid g2" style="margin-top:12px">
+      <div><label class="f" for="ghTok">GitHub token (Gists: Read and write)</label>
+        <input type="password" id="ghTok" placeholder="github_pat_..." autocomplete="off"></div>
+      <div><label class="f" for="ghGist">Gist ID</label>
+        <input type="text" id="ghGist" placeholder="auto-created on first sync" autocomplete="off"></div>
+    </div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="primary" id="btnSync" onclick="syncNow()">Save token &amp; sync now</button>
+      <button onclick="downloadCSV()">Download CSV</button>
+      <button onclick="openGist()">Open gist</button>
+      <button onclick="forgetToken()">Forget token here</button>
+      <button onclick="exportData()">Copy as text</button>
+      <button onclick="importData()">Restore from text</button>
+      <button onclick="lockNow()">Lock</button>
+    </div>
+    <div class="note" id="syncMsg" style="min-height:1.2em"></div>
+    <textarea id="ioBox" placeholder="Copy/restore text appears here." style="margin-top:10px"></textarea>
   </div>
 
-  <div class="btnrow" style="margin-top:14px">
-    <button class="primary" id="btnSync" onclick="syncNow()">Save token &amp; sync now</button>
-    <button onclick="downloadCSV()">Download CSV</button>
-    <button onclick="openGist()">Open gist</button>
-    <button onclick="forgetToken()">Forget token here</button>
-    <button onclick="exportData()">Copy as text</button>
-    <button onclick="importData()">Restore from text</button>
+  <div class="card">
+    <h2>Parked items</h2>
+    <div id="unparkList"></div>
   </div>
-  <div class="note" id="syncMsg" style="min-height:1.2em"></div>
 
-  <div class="warn-box"><strong>On the work laptop, consider skipping the token.</strong> Without it the tracker still saves locally and Download CSV still works. Create it with <em>only</em> <strong>Gists: Read and write</strong> and a short expiry — that scope touches your gists and nothing else.</div>
+  <div class="card">
+    <h2>Deliberately not in the system</h2>
+    <p class="note" style="margin-top:0">This list exists because leaving things out silently looks like an
+      oversight. Each is parked for a stated reason, and parking is reversible.</p>
+    <div id="parkedList"></div>
+  </div>
 
-  <textarea id="ioBox" placeholder="Copy/restore text appears here." style="margin-top:12px"></textarea>
+  <div class="card">
+    <h2>Also</h2>
+    <p class="note"><b>Creatine.</b> <span id="sCreatine"></span></p>
+    <p class="note"><b>Social.</b> <span id="sSocialNote"></span></p>
+  </div>
+
+  <div class="card">
+    <h2>Calibration</h2>
+    <p class="note" id="sCalibration"></p>
+    <p class="note" id="sNoBench"></p>
+    <p class="note"><a href="https://github.com/hewentto/focustracker/blob/main/PLAN.md">The full plan, the programme, and the parked list</a>. Not medical advice.</p>
+  </div>
 </div>
 
-<div class="footer">
-  <strong>Calibration.</strong> In the gym megastudy (<em>Nature</em> 2021, N&nbsp;=&nbsp;61,293, 54 expert-designed arms) expert forecasts of which interventions would work correlated with results at <strong>r&nbsp;=&nbsp;0.02</strong> and were 9.1× too optimistic; 45% of arms worked at 4 weeks and <strong>8% still did at week 10</strong>. This system is ranked by evidence quality, which is knowable — not by what will work for you, which isn't.
-  <br><br>Habit formation: median 66 days, range 18–254, ~91 days for exercise. Expect a wobble in months 4–7 — that's when most people who disengage do it, and 33–46% of them come back.
-  <br><br><a href="https://github.com/hewentto/focustracker/blob/main/PLAN.md">The plan, the programme, and the deliberately-parked list</a>. Not medical advice.
-</div>
+</div><!-- /wrap -->
 
-</div>
+<nav class="tabbar" role="tablist">
+  <button id="tab-today" onclick="go('today')"><span class="ti">✓</span>Today</button>
+  <button id="tab-programme" onclick="go('programme')"><span class="ti">▤</span>Programme</button>
+  <button id="tab-review" onclick="go('review')"><span class="ti">◱</span>Review</button>
+</nav>
+
+</div><!-- /app -->
 
 <script src="gate.js"></script>
+<script src="programme.js"></script>
+<script src="charts.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

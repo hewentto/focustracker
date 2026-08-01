@@ -32,11 +32,17 @@ CSV_FILE = "focus-log.csv"
 API = "https://api.github.com"
 
 CORE3 = ("wake", "light", "train")
+# APPEND-ONLY. New columns go on the end, never inserted, or every CSV
+# already downloaded misaligns against a new one. Must stay byte-identical
+# to the `hdr` array in t/e2e545319a/app.js toCSV().
+# `longest_block_min` is retired from the UI but kept so historical CSVs
+# and the two-sided parity both survive.
 CSV_HEADER = [
     "date", "wake_within_30m", "morning_light", "trained", "caffeine_plan",
     "both_blocks", "logged", "core3_all", "training_type", "wake_time",
     "bed_time", "sleep_hours", "longest_block_min",
     "social_contact", "protein_target", "note",
+    "training_type_2", "run_km", "lift_template",
 ]
 
 # Garmin activityType.typeKey -> our session type. This is a STRICT whitelist:
@@ -80,8 +86,8 @@ def blank_day():
     return {
         "wake": False, "light": False, "train": False, "caff": False,
         "block": False, "log": False, "wakeT": "", "bedT": "", "focus": "",
-        "trainType": "", "social": False, "protein": False,
-        "note": "", "_u": 0,
+        "trainType": "", "train2": "", "runKm": "", "liftTpl": "",
+        "social": False, "protein": False, "note": "", "_u": 0,
     }
 
 
@@ -122,6 +128,10 @@ def minutes(hm):
     return int(h) * 60 + int(m)
 
 
+def _hhmm(m):
+    return "%02d:%02d" % (m // 60, m % 60) if m is not None else "--:--"
+
+
 def sleep_hours(rec):
     a, b = minutes(rec.get("wakeT", "")), minutes(rec.get("bedT", ""))
     if a is None or b is None:
@@ -151,6 +161,7 @@ def to_csv(db):
             sleep_hours(r), r.get("focus", ""),
             int(bool(r.get("social"))), int(bool(r.get("protein"))),
             r.get("note", ""),
+            r.get("train2", ""), r.get("runKm", ""), r.get("liftTpl", ""),
         ]))
     return ",".join(CSV_HEADER) + "\n" + "\n".join(rows) + "\n"
 
@@ -162,6 +173,13 @@ def gh_headers(token):
 
 
 def gist_get(gist_id, token):
+    """Return the WHOLE document, not just its `data` key.
+
+    Returning only `data` and rebuilding {v, data} on write silently
+    destroyed every sibling key -- which is why the app's prefs could
+    not live in the gist. Whatever else is in there, we hand it back
+    untouched.
+    """
     r = requests.get(API + "/gists/" + gist_id,
                      headers=gh_headers(token), timeout=30)
     r.raise_for_status()
@@ -170,15 +188,20 @@ def gist_get(gist_id, token):
     if not raw:
         log("note: " + GIST_FILE + " not in gist yet, starting fresh")
         return {}
-    return json.loads(raw).get("data", {})
+    body = json.loads(raw)
+    return body if isinstance(body, dict) else {}
 
 
-def gist_put(gist_id, token, db):
+def gist_put(gist_id, token, body, db):
+    """Write db back into the document we read, preserving unknown keys."""
+    out = dict(body)
+    out["v"] = 2
+    out["data"] = db
     r = requests.patch(
         API + "/gists/" + gist_id,
         headers=gh_headers(token),
         json={"files": {
-            GIST_FILE: {"content": json.dumps({"v": 2, "data": db}, indent=1)},
+            GIST_FILE: {"content": json.dumps(out, indent=1)},
             CSV_FILE: {"content": to_csv(db)},
         }},
         timeout=30)
@@ -218,7 +241,7 @@ def fetch_garmin(days_back):
 
         try:
             acts = client.get_activities_by_date(iso, iso) or []
-            best = ""
+            kinds, run_m = [], 0.0
             for a in acts:
                 if (a.get("duration") or 0) < MIN_ACTIVITY_SECONDS:
                     continue
@@ -226,11 +249,23 @@ def fetch_garmin(days_back):
                 mapped = TRAIN_MAP.get(key)
                 if mapped is None:
                     continue  # a walk is not a session
-                if not best or TRAIN_PRIORITY[mapped] > TRAIN_PRIORITY[best]:
-                    best = mapped
-            if best:
-                entry["trainType"] = best
+                kinds.append(mapped)
+                # Distance arrives in METRES, and only a run should carry one --
+                # indoor_cardio maps to "lift" and would otherwise attach a
+                # distance to a lifting day.
+                if mapped == "run":
+                    run_m += float(a.get("distance") or 0)
+            if kinds:
+                # Highest priority is the day's session; the best DIFFERENT
+                # kind becomes the second, so a lift-plus-run day stops
+                # undercounting one of them.
+                ordered = sorted(set(kinds), key=lambda k: -TRAIN_PRIORITY[k])
+                entry["trainType"] = ordered[0]
                 entry["train"] = True
+                if len(ordered) > 1:
+                    entry["train2"] = ordered[1]
+            if run_m > 0:
+                entry["runKm"] = "%.2f" % (run_m / 1000.0)
         except Exception as exc:  # noqa: BLE001
             if is_rate_limited(exc):
                 raise RateLimited(str(exc)) from exc
@@ -280,7 +315,22 @@ def main():
         log("nothing to write")
         return 0
 
-    db = gist_get(gist_id, gist_token)
+    body = gist_get(gist_id, gist_token)
+    db = body.get("data", {}) if isinstance(body.get("data"), dict) else {}
+
+    # The app owns the wake targets. Reading them from the gist is what
+    # stops Python judging Saturday against 06:30 and writing wake=False
+    # while the app's own band says the day was fine.
+    prefs = body.get("prefs") if isinstance(body.get("prefs"), dict) else {}
+    t_week = minutes(prefs.get("targetWake", "")) if prefs else None
+    t_wknd = minutes(prefs.get("targetWakeWeekend", "")) if prefs else None
+    if t_week is None:
+        t_week = target
+    if t_wknd is None:
+        t_wknd = t_week
+    log("targets: weekday %s, weekend %s%s" % (
+        _hhmm(t_week), _hhmm(t_wknd), " (from gist prefs)" if prefs else " (from env)"))
+
     now_ms = int(datetime.now().timestamp() * 1000)
     changed = 0
 
@@ -289,7 +339,7 @@ def main():
         before = dict(rec)
 
         # Objective fields only. Everything else is left exactly as-is.
-        for key in ("wakeT", "bedT", "trainType"):
+        for key in ("wakeT", "bedT", "trainType", "train2", "runKm"):
             if fields.get(key):
                 rec[key] = fields[key]
         if fields.get("train"):
@@ -297,7 +347,9 @@ def main():
 
         wake_m = minutes(rec.get("wakeT", ""))
         if wake_m is not None:
-            delta = abs(wake_m - target)
+            weekend = date.fromisoformat(iso).weekday() >= 5
+            tgt = t_wknd if weekend else t_week
+            delta = abs(wake_m - tgt)
             delta = min(delta, 1440 - delta)
             rec["wake"] = delta <= 30
 
@@ -310,7 +362,7 @@ def main():
         log("no changes")
         return 0
 
-    gist_put(gist_id, gist_token, db)
+    gist_put(gist_id, gist_token, body, db)
     log("wrote " + str(changed) + " day(s) to gist; " + str(len(db)) + " total")
     return 0
 

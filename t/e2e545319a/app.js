@@ -1,430 +1,1060 @@
 "use strict";
 
-/* GATE_HASH and GATE_SALT come from gate.js. */
-const LS_UNLOCK="ft.unlocked.v1";
-const LS_DATA="ft.data.v1", LS_PREF="ft.prefs.v1", LS_TOK="ft.tok.v1", LS_GIST="ft.gist.v1", LS_THEME="ft.theme.v1";
-const LS_DIRTY="ft.dirty.v1";
-const GIST_FILE="focus-tracker-data.json";
-const CSV_FILE="focus-log.csv";
+/* GATE_HASH and GATE_SALT come from gate.js. Static programme content
+   from programme.js. Chart harness from charts.js. */
 
-/* Core Three first — a bad day that hits these three is a win. */
-const KEYS=["wake","light","train","caff","block","log"];
-const CORE3=["wake","light","train"];
-const NAMES={wake:"Wake ±30m",light:"Morning light",train:"Trained",caff:"Caffeine plan",block:"Both blocks",log:"Logged"};
-/* Every user-editable field. Drives dirty-tracking and the emptiness test. */
-const FIELDS=KEYS.concat(["wakeT","bedT","focus","trainType","social","protein","note"]);
+const LS_UNLOCK = "ft.unlocked.v1";
+const LS_DATA = "ft.data.v1", LS_PREF = "ft.prefs.v1", LS_TOK = "ft.tok.v1";
+const LS_GIST = "ft.gist.v1", LS_THEME = "ft.theme.v1", LS_DIRTY = "ft.dirty.v1";
+const GIST_FILE = "focus-tracker-data.json";
+const CSV_FILE = "focus-log.csv";
 
-/* Weekly targets */
-const T_LIFT=3, T_RUN=2, T_SOCIAL=2;
+/* Core Three first -- a bad day that hits these three is a win. */
+const KEYS = ["wake", "light", "train", "caff", "block", "log"];
+const CORE3 = ["wake", "light", "train"];
+const NAMES = { wake: "Wake ±30m", light: "Morning light", train: "Trained",
+                caff: "Caffeine plan", block: "Both blocks", log: "Logged" };
 
-let DB={}, CUR=isoDay(new Date()), syncTimer=null;
+/* Every user-editable day field. Drives dirty-tracking and emptiness.
+   `focus` is retired from the UI but stays in the schema: removing it
+   would break every CSV already downloaded and the JS/Python parity. */
+const FIELDS = KEYS.concat(["wakeT", "bedT", "focus", "trainType", "train2",
+                            "runKm", "liftTpl", "social", "protein", "note"]);
+
+/* Weekly targets (PLAN §2). */
+const T_LIFT = 3, T_RUN = 2, T_SOCIAL = 2, T_PROTEIN = 5;
+
+const DEFAULT_PREFS = {
+  programStart: "", targetWake: "06:30", targetWakeWeekend: "08:00",
+  bodyweightKg: "", hrMax: "", week17: "",
+  cDose: "160", cTime: "12:30", cBed: "23:00", cHalf: "5",
+  loads: {}, parked: {}, _u: 0,
+};
+
+let DB = {}, PREFS = Object.assign({}, DEFAULT_PREFS);
+let CUR = isoDay(new Date()), syncTimer = null;
+/* Top-level gist keys we don't understand. Preserved verbatim on write
+   so a future field added by any other client isn't destroyed. */
+let REMOTE_EXTRA = {};
+let VIEW = "today", WINDOW_DAYS = 56, DAYFILTER = "all", REVIEW_TABLE = false;
 
 /* ---------- gate ---------- */
-async function sha256(s){
-  const buf=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+async function sha256(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
-async function mkHash(){
-  const v=document.getElementById("gNew").value;
-  document.getElementById("gHash").textContent = v ? await sha256(GATE_SALT+v) : "—";
+async function mkHash() {
+  const v = el("gNew").value;
+  el("gHash").textContent = v ? await sha256(GATE_SALT + v) : "—";
 }
-async function tryUnlock(){
-  const h=await sha256(GATE_SALT+document.getElementById("gPass").value);
-  if(h===GATE_HASH){ lsSet(LS_UNLOCK,h); reveal(); }
-  else { document.getElementById("gErr").textContent="Not that one."; document.getElementById("gPass").select(); }
+async function tryUnlock() {
+  const h = await sha256(GATE_SALT + el("gPass").value);
+  if (h === GATE_HASH) { lsSet(LS_UNLOCK, h); reveal(); }
+  else { el("gErr").textContent = "Not that one."; el("gPass").select(); }
 }
-function lockNow(){
+function lockNow() {
   lsDel(LS_UNLOCK);
-  document.getElementById("app").style.display="none";
-  document.getElementById("gate").style.display="flex";
-  document.getElementById("gPass").value="";
-  document.getElementById("gErr").textContent="";
+  el("app").style.display = "none";
+  el("gate").style.display = "flex";
+  el("gPass").value = ""; el("gErr").textContent = "";
 }
-function reveal(){
-  document.getElementById("gate").style.display="none";
-  document.getElementById("app").style.display="block";
+function reveal() {
+  el("gate").style.display = "none";
+  el("app").style.display = "block";
   boot();
 }
 
 /* ---------- helpers ---------- */
-function isoDay(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
-function dayFromIso(s){const p=s.split("-");return new Date(+p[0],+p[1]-1,+p[2]);}
-function fmtDay(s){return dayFromIso(s).toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});}
-function mins(t){if(!t)return null;const p=t.split(":");return (+p[0])*60+(+p[1]);}
-function pretty(m){m=((m%1440)+1440)%1440;let h=Math.floor(m/60),x=m%60,ap=h<12?"am":"pm",hh=h%12===0?12:h%12;return hh+":"+String(x).padStart(2,"0")+ap;}
-function blank(){return {wake:false,light:false,train:false,caff:false,block:false,log:false,
-  wakeT:"",bedT:"",focus:"",trainType:"",social:false,protein:false,note:"",_u:0};}
-/* Reading a day must never create it — browsing with Prev/Next used to leave
-   an all-false record behind, which then reached the CSV, the gist and the
-   adherence maths. Only save() may bring a day into existence. */
-function rec(){return DB[CUR]||blank();}
-function recW(){if(!DB[CUR])DB[CUR]=blank();return DB[CUR];}
-function sleepMins(r){ if(!r||!r.wakeT||!r.bedT)return null; let x=mins(r.wakeT)-mins(r.bedT); if(x<0)x+=1440; return x; }
-
-function hasVal(v){ return v!==null && v!==undefined && v!==""; }
-function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-
-/* A day carrying no information at all — not a logged rest day, an artefact. */
-function isEmpty(r){
-  if(!r)return true;
-  if(KEYS.some(k=>r[k])||r.social||r.protein)return false;
-  return !["wakeT","bedT","focus","trainType","note"].some(f=>hasVal(r[f]));
+function el(id) { return document.getElementById(id); }
+function isoDay(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+         "-" + String(d.getDate()).padStart(2, "0");
 }
-function prune(db){ Object.keys(db).forEach(d=>{ if(isEmpty(db[d]))delete db[d]; }); return db; }
+function dayFromIso(s) { const p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+function fmtDay(s) {
+  return dayFromIso(s).toLocaleDateString(undefined,
+    { weekday: "long", month: "short", day: "numeric" });
+}
+function fmtShortDay(s) {
+  return dayFromIso(s).toLocaleDateString(undefined,
+    { weekday: "short", month: "short", day: "numeric" });
+}
+function isWeekend(iso) { const w = dayFromIso(iso).getDay(); return w === 0 || w === 6; }
+function hhmmToMin(t) { if (!t) return null; const p = t.split(":"); return (+p[0]) * 60 + (+p[1]); }
+function minToHHMM(m) {
+  m = Math.round(((m % 1440) + 1440) % 1440);
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+const mins = hhmmToMin;
+function pretty(m) {
+  m = ((m % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60), x = m % 60, ap = h < 12 ? "am" : "pm";
+  return (h % 12 === 0 ? 12 : h % 12) + ":" + String(x).padStart(2, "0") + ap;
+}
+function addDays(iso, n) { const d = dayFromIso(iso); d.setDate(d.getDate() + n); return isoDay(d); }
+function daysBetween(a, b) {
+  return Math.round((dayFromIso(b) - dayFromIso(a)) / 86400000);
+}
 
-function lsGet(k,f){try{const v=localStorage.getItem(k);return v===null?f:v;}catch(e){return f;}}
-function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
-function lsDel(k){try{localStorage.removeItem(k);}catch(e){}}
+function blank() {
+  return { wake: false, light: false, train: false, caff: false, block: false, log: false,
+    wakeT: "", bedT: "", focus: "", trainType: "", train2: "", runKm: "", liftTpl: "",
+    social: false, protein: false, note: "", _u: 0 };
+}
+/* Reading a day must never create it. Only save() brings one into being. */
+function rec() { return DB[CUR] || blank(); }
+function recW() { if (!DB[CUR]) DB[CUR] = blank(); return DB[CUR]; }
+function sleepMins(r) {
+  if (!r || !r.wakeT || !r.bedT) return null;
+  let x = mins(r.wakeT) - mins(r.bedT); if (x < 0) x += 1440; return x;
+}
+function hasVal(v) { return v !== null && v !== undefined && v !== ""; }
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function isEmpty(r) {
+  if (!r) return true;
+  if (KEYS.some(k => r[k]) || r.social || r.protein) return false;
+  return !["wakeT", "bedT", "focus", "trainType", "train2", "runKm", "liftTpl", "note"]
+    .some(f => hasVal(r[f]));
+}
+function prune(db) { Object.keys(db).forEach(d => { if (isEmpty(db[d])) delete db[d]; }); return db; }
 
-function persist(){
+function lsGet(k, f) { try { const v = localStorage.getItem(k); return v === null ? f : v; } catch (e) { return f; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+function persist() {
   lsSet(LS_DATA, JSON.stringify(DB));
-  const p=document.getElementById("savePill");
-  p.textContent="saved "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
-  p.className="pill ok";
+  const p = el("savePill");
+  if (p) {
+    p.textContent = "saved " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    p.className = "pill ok";
+  }
 }
-function loadLocal(){ try{ DB=prune(JSON.parse(lsGet(LS_DATA,"{}"))||{}); }catch(e){ DB={}; } }
+function loadLocal() { try { DB = prune(JSON.parse(lsGet(LS_DATA, "{}")) || {}); } catch (e) { DB = {}; } }
 
-/* ---------- unsynced-edit tracking ----------
-   One _u per day can't express "Garmin set wakeT while I ticked light", so the
-   newer whole record used to win and swallow the other side's edits. Remember
-   which fields this device changed since its last successful push and re-apply
-   them after every merge; drop them once they're upstream. */
-function loadDirty(){ try{ return JSON.parse(lsGet(LS_DIRTY,"{}"))||{}; }catch(e){ return {}; } }
-function saveDirty(d){ lsSet(LS_DIRTY, JSON.stringify(d)); }
-function markDirty(day,before,after){
-  const d=loadDirty(), set={}, base=before||blank();
-  (d[day]||[]).forEach(f=>set[f]=1);
-  FIELDS.forEach(f=>{ if(base[f]!==after[f])set[f]=1; });
-  const list=Object.keys(set);
-  if(list.length){ d[day]=list; saveDirty(d); }
+/* ---------- prefs ---------- */
+/* Prefs are configuration, not a day record: one object, its own _u,
+   last-write-wins as a whole. They change about four times a year, so
+   per-key timestamps would be machinery for a problem that won't occur. */
+function loadPrefs() {
+  try {
+    const p = JSON.parse(lsGet(LS_PREF, "null"));
+    if (p) PREFS = Object.assign({}, DEFAULT_PREFS, p);
+  } catch (e) {}
+  if (!PREFS.loads) PREFS.loads = {};
+  if (!PREFS.parked) PREFS.parked = {};
 }
-function dropDirty(sent){
-  const d=loadDirty();
-  Object.keys(sent).forEach(day=>{
-    if(!d[day])return;
-    const gone={}; sent[day].forEach(f=>gone[f]=1);
-    const left=d[day].filter(f=>!gone[f]);
-    if(left.length)d[day]=left; else delete d[day];
+function savePrefs(touch) {
+  if (touch !== false) PREFS._u = Date.now();
+  lsSet(LS_PREF, JSON.stringify(PREFS));
+  queueSync();
+}
+function targetFor(iso) {
+  const t = isWeekend(iso) ? PREFS.targetWakeWeekend : PREFS.targetWake;
+  return hasVal(t) ? mins(t) : null;
+}
+function isParked(k) { return !!PREFS.parked[k]; }
+
+/* ---------- unsynced-edit tracking ---------- */
+function loadDirty() { try { return JSON.parse(lsGet(LS_DIRTY, "{}")) || {}; } catch (e) { return {}; } }
+function saveDirty(d) { lsSet(LS_DIRTY, JSON.stringify(d)); }
+function markDirty(day, before, after) {
+  const d = loadDirty(), set = {}, base = before || blank();
+  (d[day] || []).forEach(f => set[f] = 1);
+  FIELDS.forEach(f => { if (base[f] !== after[f]) set[f] = 1; });
+  const list = Object.keys(set);
+  if (list.length) { d[day] = list; saveDirty(d); }
+}
+function dropDirty(sent) {
+  const d = loadDirty();
+  Object.keys(sent).forEach(day => {
+    if (!d[day]) return;
+    const gone = {}; sent[day].forEach(f => gone[f] = 1);
+    const left = d[day].filter(f => !gone[f]);
+    if (left.length) d[day] = left; else delete d[day];
   });
   saveDirty(d);
 }
-function savePrefs(){
-  lsSet(LS_PREF, JSON.stringify({
-    dose:document.getElementById("cDose").value, time:document.getElementById("cTime").value,
-    bed:document.getElementById("cBed").value, half:document.getElementById("cHalf").value
-  }));
-}
-function loadPrefs(){
-  try{
-    const p=JSON.parse(lsGet(LS_PREF,"null")); if(!p)return;
-    if(p.dose)document.getElementById("cDose").value=p.dose;
-    if(p.time)document.getElementById("cTime").value=p.time;
-    if(p.bed)document.getElementById("cBed").value=p.bed;
-    if(p.half)document.getElementById("cHalf").value=p.half;
-  }catch(e){}
+
+/* ---------- router ---------- */
+const VIEWS = ["today", "programme", "review", "setup"];
+function go(v) { location.hash = "#" + v; }
+function applyRoute() {
+  let v = (location.hash || "#today").replace("#", "");
+  if (VIEWS.indexOf(v) < 0) v = "today";
+  VIEW = v;
+  VIEWS.forEach(name => {
+    const node = el("v-" + name);
+    if (node) node.style.display = name === v ? "block" : "none";
+    const tab = el("tab-" + name);
+    if (tab) {
+      tab.classList.toggle("on", name === v);
+      tab.setAttribute("aria-current", name === v ? "page" : "false");
+    }
+  });
+  render();
+  window.scrollTo(0, 0);
+  if (typeof chartsOnShow === "function") chartsOnShow();
 }
 
-/* ---------- ui ---------- */
-function toggleWhy(el){el.parentElement.parentElement.classList.toggle("open");}
-function toggleTheme(){
-  const r=document.documentElement;
-  const next=r.getAttribute("data-theme")==="dark"?"light":"dark";
-  r.setAttribute("data-theme",next); lsSet(LS_THEME,next);
-}
-function shiftDay(n){const d=dayFromIso(CUR);d.setDate(d.getDate()+n);CUR=isoDay(d);loadDay();render();}
-function goToday(){CUR=isoDay(new Date());loadDay();render();}
+/* ---------- day nav ---------- */
+function shiftDay(n) { CUR = addDays(CUR, n); loadDay(); render(); }
+function goToday() { CUR = isoDay(new Date()); loadDay(); render(); }
 
-function save(){
-  const before=DB[CUR]?Object.assign({},DB[CUR]):null;
-  const day=CUR, t=recW();
-  document.querySelectorAll('.item input[type=checkbox]').forEach(cb=>{t[cb.dataset.k]=cb.checked;});
-  t.wakeT=document.getElementById("fWake").value;
-  t.bedT=document.getElementById("fBed").value;
-  t.focus=document.getElementById("fFocus").value;
-  t.trainType=document.getElementById("fTrain").value;
-  t.social=document.getElementById("fSocial").checked;
-  t.protein=document.getElementById("fProtein").checked;
-  t.note=document.getElementById("fNote").value;
-  t._u=Date.now();
-  markDirty(day,before,t);
-  if(isEmpty(t))delete DB[day];
+function save() {
+  const before = DB[CUR] ? Object.assign({}, DB[CUR]) : null;
+  const day = CUR, t = recW();
+  document.querySelectorAll("#tapList input[type=checkbox]").forEach(cb => {
+    t[cb.dataset.k] = cb.checked;
+  });
+  t.wakeT = el("fWake").value;
+  t.bedT = el("fBed").value;
+  t.trainType = el("fTrain").value;
+  t.train2 = el("fTrain2").value;
+  t.runKm = el("fRunKm").value;
+  t.liftTpl = el("fLiftTpl").value;
+  t.social = el("fSocial").checked;
+  t.protein = el("fProtein").checked;
+  t.note = el("fNote").value;
+  t._u = Date.now();
+  markDirty(day, before, t);
+  if (isEmpty(t)) delete DB[day];
   persist(); render(); queueSync();
 }
-function loadDay(){
-  const t=rec();
-  document.querySelectorAll('.item input[type=checkbox]').forEach(cb=>{cb.checked=!!t[cb.dataset.k];});
-  document.getElementById("fWake").value=t.wakeT||"";
-  document.getElementById("fBed").value=t.bedT||"";
-  document.getElementById("fFocus").value=t.focus||"";
-  document.getElementById("fTrain").value=t.trainType||"";
-  document.getElementById("fSocial").checked=!!t.social;
-  document.getElementById("fProtein").checked=!!t.protein;
-  document.getElementById("fNote").value=t.note||"";
-  document.getElementById("todayLabel").textContent=fmtDay(CUR)+(CUR===isoDay(new Date())?" (today)":"");
+function loadDay() {
+  const t = rec();
+  document.querySelectorAll("#tapList input[type=checkbox]").forEach(cb => {
+    cb.checked = !!t[cb.dataset.k];
+  });
+  el("fWake").value = t.wakeT || "";
+  el("fBed").value = t.bedT || "";
+  el("fTrain").value = t.trainType || "";
+  el("fTrain2").value = t.train2 || "";
+  el("fRunKm").value = t.runKm || "";
+  el("fLiftTpl").value = t.liftTpl || "";
+  el("fSocial").checked = !!t.social;
+  el("fProtein").checked = !!t.protein;
+  el("fNote").value = t.note || "";
 }
 
 /* ---------- caffeine ---------- */
-function calcCaff(){
-  const dose=+document.getElementById("cDose").value||0;
-  const tk=mins(document.getElementById("cTime").value);
-  const bd=mins(document.getElementById("cBed").value);
-  const hl=+document.getElementById("cHalf").value;
-  if(tk===null||bd===null||!dose)return;
-  let elapsed=bd-tk; if(elapsed<0)elapsed+=1440;
-  const frac=Math.pow(0.5,(elapsed/60)/hl);
-  document.getElementById("cMg").textContent=(dose*frac).toFixed(0)+" mg";
-  document.getElementById("cPct").textContent=(frac*100).toFixed(0)+"%";
-  const cutoffH=4.54+0.0398*dose;
-  const latest=bd-Math.round(cutoffH*60);
-  document.getElementById("cCut").textContent=pretty(latest);
-  const overBy=(cutoffH*60)-elapsed;
-  const okDose=Math.max(0,Math.round((elapsed/60-4.54)/0.0398));
-  const v=document.getElementById("cVerdict"); v.className="verdict";
-  let cls,t,d;
-  if(overBy<=0){ cls="v-good"; t="Inside the modelled window";
-    d="Clear by "+Math.round(-overBy)+" min. Ignores guarana's unlabelled caffeine — keep margin."; }
-  else if(overBy<=60){ cls="v-warn"; t="Marginal — about "+Math.round(overBy)+" min late";
-    d="Move it "+Math.round(overBy)+" min earlier, or drop to ~"+okDose+" mg. Lower dose keeps nearly all the evidenced benefit."; }
-  else { cls="v-crit"; t="About "+(overBy/60).toFixed(1)+"h too late";
-    d="At this dose you'd need it by "+pretty(latest)+", or cut to ~"+okDose+" mg. Drake et al.: 400 mg six hours pre-bed cost >1h of sleep objectively, with no self-reported signal."; }
+function calcCaff() {
+  const dose = +el("cDose").value || 0;
+  const tk = mins(el("cTime").value), bd = mins(el("cBed").value);
+  const hl = +el("cHalf").value;
+  if (tk === null || bd === null || !dose) return;
+  let elapsed = bd - tk; if (elapsed < 0) elapsed += 1440;
+  const frac = Math.pow(0.5, (elapsed / 60) / hl);
+  const cutoffH = 4.54 + 0.0398 * dose;
+  const latest = bd - Math.round(cutoffH * 60);
+  const overBy = (cutoffH * 60) - elapsed;
+  const okDose = Math.max(0, Math.round((elapsed / 60 - 4.54) / 0.0398));
+  setText("cMg", (dose * frac).toFixed(0) + " mg");
+  setText("cPct", (frac * 100).toFixed(0) + "%");
+  setText("cCut", pretty(latest));
+  setText("caffSummary", "Latest coffee " + pretty(latest) + " · " + dose + " mg at " + el("cTime").value);
+  const v = el("cVerdict"); v.className = "verdict";
+  let cls, t, d;
+  if (overBy <= 0) {
+    cls = "v-good"; t = "Inside the modelled window";
+    d = "Clear by " + Math.round(-overBy) + " min. Ignores guarana's unlabelled caffeine — keep margin.";
+  } else if (overBy <= 60) {
+    cls = "v-warn"; t = "Marginal — about " + Math.round(overBy) + " min late";
+    d = "Move it " + Math.round(overBy) + " min earlier, or drop to ~" + okDose +
+        " mg. Lower dose keeps nearly all the evidenced benefit.";
+  } else {
+    cls = "v-crit"; t = "About " + (overBy / 60).toFixed(1) + "h too late";
+    d = "At this dose you'd need it by " + pretty(latest) + ", or cut to ~" + okDose +
+        " mg. Drake et al.: 400 mg six hours pre-bed cost >1h of sleep objectively, with no self-reported signal.";
+  }
   v.classList.add(cls);
-  document.getElementById("cvT").textContent=t;
-  document.getElementById("cvD").textContent=d;
+  setText("cvT", t); setText("cvD", d);
+  PREFS.cDose = el("cDose").value; PREFS.cTime = el("cTime").value;
+  PREFS.cBed = el("cBed").value; PREFS.cHalf = el("cHalf").value;
+}
+function setText(id, s) { const n = el(id); if (n) n.textContent = s; }
+
+/* ---------- programme clock (PLAN §3, §4) ---------- */
+/* Everything here derives from programStart + weekday. No history
+   required, which is why the Programme tab is correct on install day. */
+function progWeek(iso) {
+  if (!hasVal(PREFS.programStart)) return null;
+  const n = daysBetween(PREFS.programStart, iso || isoDay(new Date()));
+  if (n < 0) return null;
+  return Math.floor(n / 7) + 1;
+}
+function dayPlan(iso) {
+  const dow = dayFromIso(iso).getDay();       /* 0 Sun .. 6 Sat */
+  const wk = progWeek(iso);
+  if (dow === 2 || dow === 4) {               /* Tue / Thu = run */
+    const w = wk && wk >= 1 && wk <= RUN_WEEKS.length ? RUN_WEEKS[wk - 1] : null;
+    return { kind: "run", week: wk,
+      detail: w ? (dow === 2 ? w.tue : w.thu)
+                : "Set a programme start date in Setup to see this week's protocol.",
+      note: w ? w.note : "" };
+  }
+  if (dow === 1 || dow === 3 || dow === 5) {  /* Mon / Wed / Fri = lift */
+    const idx = ["", 0, "", 1, "", 2, ""][dow];
+    const tpl = wk ? (((wk - 1) * 3 + idx) % 2 === 0 ? "A" : "B") : null;
+    return { kind: "lift", week: wk, template: tpl,
+      detail: tpl ? ("Session " + tpl + " — five lifts, ~45–55 min.")
+                  : "Set a programme start date in Setup to see whether today is A or B." };
+  }
+  return { kind: "rest", week: wk, detail: "Rest. Nothing prescribed today." };
+}
+/* 110% of the longest run in the previous 30 days (PLAN §4). */
+function runCeiling(iso) {
+  let longest = 0, seen = 0;
+  for (let i = 1; i <= 30; i++) {
+    const r = DB[addDays(iso, -i)];
+    if (r && hasVal(r.runKm)) { const v = +r.runKm; if (!isNaN(v)) { seen++; if (v > longest) longest = v; } }
+  }
+  if (!seen || !longest) return { known: false, longest: 0, ceiling: 0 };
+  return { known: true, longest: longest, ceiling: longest * 1.1 };
 }
 
-/* ---------- week ---------- */
-function weekDays(){const out=[],now=dayFromIso(CUR);for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);out.push(isoDay(d));}return out;}
-
-function tile(id,val,target){
-  const el=document.getElementById(id); if(!el)return;
-  el.textContent = target===null ? val : val+"/"+target;
-  el.style.color = target===null ? "" : (val>=target ? "var(--good)" : "");
+/* ---------- week windows ---------- */
+/* CALENDAR week (Mon-Sun). §2's targets are per-week and §4 counts
+   programme weeks, so a rolling 7-day window makes both wrong. */
+function weekOf(iso) {
+  const d = dayFromIso(iso), dow = (d.getDay() + 6) % 7;   /* Mon = 0 */
+  const mon = addDays(iso, -dow), out = [];
+  for (let i = 0; i < 7; i++) out.push(addDays(mon, i));
+  return out;
+}
+function windowDays(n) {
+  const out = [], today = isoDay(new Date());
+  for (let i = n - 1; i >= 0; i--) out.push(addDays(today, -i));
+  return out;
+}
+function filteredDays() {
+  let d = windowDays(WINDOW_DAYS);
+  if (hasVal(PREFS.programStart) && WINDOW_DAYS >= 9999) {
+    d = d.filter(x => x >= PREFS.programStart);
+  }
+  if (DAYFILTER === "weekdays") d = d.filter(x => !isWeekend(x));
+  if (DAYFILTER === "weekends") d = d.filter(isWeekend);
+  return d;
 }
 
-function render(){
-  const days=weekDays(), todayIso=isoDay(new Date());
-  document.getElementById("wkHead").innerHTML='<th class="rowh">Behaviour</th>'+days.map(d=>{
-    const dd=dayFromIso(d);
-    return '<th'+(d===CUR?' class="today"':'')+'>'+dd.toLocaleDateString(undefined,{weekday:"short"})+'<br><span style="font-weight:400;opacity:.7">'+(dd.getMonth()+1)+"/"+dd.getDate()+'</span></th>';
-  }).join("");
+/* ---------- render ---------- */
+function render() {
+  if (VIEW === "today") renderToday();
+  else if (VIEW === "programme") renderProgramme();
+  else if (VIEW === "review") renderReview();
+  else if (VIEW === "setup") renderSetup();
+  if (typeof chartsOnShow === "function") chartsOnShow();
+}
 
-  let html="";
-  KEYS.forEach(k=>{
-    const core=CORE3.indexOf(k)>=0;
-    html+='<tr><td class="rowh">'+(core?'<span class="core-dot" title="Core Three"></span>':'')+NAMES[k]+"</td>";
-    days.forEach((d,i)=>{
-      const r=DB[d], done=r&&r[k];
-      let flag=false;
-      if(!done && i>0 && d<=todayIso){const p=DB[days[i-1]]; if(p&&!p[k])flag=true;}
-      html+='<td'+(d===CUR?' class="today"':'')+'><span class="cell '+(done?"yes":"")+(flag?" flag":"")+'" title="'+NAMES[k]+" — "+d+'">'+(done?"✓":(flag?"!":"–"))+"</span></td>";
+/* ===== TODAY ===== */
+function renderToday() {
+  const todayIso = isoDay(new Date());
+  setText("todayLabel", fmtDay(CUR) + (CUR === todayIso ? " · today" : ""));
+  const r = DB[CUR];
+  const hit = CORE3.filter(k => r && r[k]).length;
+
+  /* The hero is a READ-OUT, not a control. The six rows below are the
+     only place the record is written -- one state, one write target. */
+  setText("heroNum", hit + "/3");
+  const segs = el("coreMeter");
+  if (segs) {
+    segs.innerHTML = "";
+    CORE3.forEach(k => {
+      const s = document.createElement("div");
+      s.className = "seg" + (r && r[k] ? " on" : "");
+      const lab = document.createElement("span");
+      lab.textContent = NAMES[k];
+      s.appendChild(lab);
+      segs.appendChild(s);
     });
-    html+="</tr>";
+  }
+  const left = CORE3.filter(k => !(r && r[k])).map(k => NAMES[k].toLowerCase());
+  const others = ["caff", "block", "log"].filter(k => !(r && r[k])).length;
+  setText("heroSub", hit === 3
+    ? (others ? "Day counts. " + others + " optional still open." : "Day counts. All six in.")
+    : (left.length === 1 ? left[0][0].toUpperCase() + left[0].slice(1) + " is the one left."
+                         : left.length + " of the Core Three still open."));
+
+  /* Missed twice: never on a day still in progress. Flagging "Trained"
+     at 9am on a day you have not finished is manufacturing a failure. */
+  const flags = [];
+  KEYS.forEach(k => {
+    if (isParked(k)) return;
+    const y = addDays(CUR, -1), y2 = addDays(CUR, -2);
+    if (CUR >= todayIso) return;
+    const a = DB[y], b = DB[y2];
+    if (a && b && !a[k] && !b[k]) flags.push(NAMES[k]);
   });
-  html+='<tr><td class="rowh">Session</td>';
-  days.forEach(d=>{
-    const r=DB[d]; const tt=r&&r.trainType?r.trainType:"";
-    const lbl={lift:"Lift",run:"Run",snack:"Snack",other:"Other"}[tt]||"—";
-    html+='<td'+(d===CUR?' class="today"':'')+'><span style="font-size:11.5px;color:var(--text-secondary)">'+lbl+"</span></td>";
+  const yest = addDays(todayIso, -1), yest2 = addDays(todayIso, -2);
+  const liveFlags = KEYS.filter(k => !isParked(k) &&
+    DB[yest] && DB[yest2] && !DB[yest][k] && !DB[yest2][k]).map(k => NAMES[k]);
+  const fb = el("missedTwice");
+  if (fb) {
+    if (liveFlags.length) {
+      fb.style.display = "flex";
+      setText("missedTwiceText", liveFlags.join(", ") + " missed two days running");
+    } else fb.style.display = "none";
+  }
+
+  /* prescription strip -- below the taps, deliberately */
+  const plan = dayPlan(CUR);
+  const dowName = dayFromIso(CUR).toLocaleDateString(undefined, { weekday: "short" });
+  let line1 = dowName + " · ";
+  if (plan.kind === "run") line1 += "Run" + (plan.week ? " · W" + plan.week : "") + ": " + plan.detail;
+  else if (plan.kind === "lift") line1 += "Lift" + (plan.template ? " " + plan.template : "") + ": " + plan.detail;
+  else line1 += plan.detail;
+  setText("rxLine1", line1);
+
+  let line2 = "";
+  if (plan.kind === "run") {
+    const c = runCeiling(CUR);
+    line2 = c.known
+      ? "Ceiling " + c.ceiling.toFixed(1) + " km — 110% of your longest run in the last 30 days (" + c.longest.toFixed(1) + " km)."
+      : (plan.week === 1 ? "Week 1 caps you at ~3 km total. The one figure here with a per-protocol RCT behind it."
+                         : "No run distances logged yet, so no ceiling can be computed.");
+  } else if (plan.kind === "lift" && plan.template) {
+    const t = LIFT_TEMPLATES[plan.template];
+    line2 = t.map(x => x.lift.split(" or ")[0]).join(" · ");
+  }
+  setText("rxLine2", line2);
+  const prov = plan.week
+    ? dowName + " = " + plan.kind + " day · week " + plan.week + " of 16"
+    : "Set a programme start date in Setup to switch this on.";
+  setText("rxProv", prov);
+
+  /* Stair-snack rescue: only on a run day, only late, only if no run. */
+  const rescue = el("rescue");
+  if (rescue) {
+    const late = new Date().getHours() >= 20;
+    const noRun = !(r && (r.trainType === "run" || r.train2 === "run"));
+    rescue.style.display = (plan.kind === "run" && late && noRun && CUR === todayIso) ? "block" : "none";
+    setText("rescueText", STAIR_SNACK.protocol);
+  }
+
+  /* week meters (calendar week, CSS not SVG) */
+  const wk = weekOf(CUR);
+  let lifts = 0, runs = 0, social = 0, protein = 0, core3days = 0;
+  wk.forEach(d => {
+    const x = DB[d]; if (!x) return;
+    [x.trainType, x.train2].forEach(t => {
+      if (t === "lift") lifts++; else if (t === "run") runs++;
+    });
+    if (x.social) social++;
+    if (x.protein) protein++;
+    if (d <= todayIso && CORE3.every(k => x[k])) core3days++;
   });
-  html+="</tr><tr><td class=\"rowh\">Sleep window</td>";
-  days.forEach(d=>{
-    const r=DB[d]; const sm=sleepMins(r);
-    let inner = sm===null ? '<span style="color:var(--text-muted)">—</span>'
-      : '<span style="font-size:11.5px;color:var(--text-secondary)">'+(sm/60).toFixed(1)+"h<br>↑"+esc(r.wakeT)+"</span>";
-    html+='<td'+(d===CUR?' class="today"':'')+">"+inner+"</td>";
-  });
-  html+="</tr>";
-  document.getElementById("wkBody").innerHTML=html;
+  meter("mLift", "Lifts", lifts, T_LIFT);
+  meter("mRun", "Runs", runs, T_RUN);
+  meter("mSocial", "Social", social, T_SOCIAL);
+  meter("mProtein", "Protein", protein, T_PROTEIN);
+  meter("mCore", "Core Three days", core3days, 7);
 
-  /* --- weekly target tiles --- */
-  let lifts=0,runs=0,social=0,core3=0,logged=0;
-  days.forEach(d=>{
-    const r=DB[d]; if(!r)return;
-    if(r.trainType==="lift")lifts++;
-    if(r.trainType==="run")runs++;
-    if(r.social)social++;
-    if(d<=todayIso){ logged++; if(CORE3.every(k=>r[k]))core3++; }
-  });
-  tile("tLift",lifts,T_LIFT);
-  tile("tRun",runs,T_RUN);
-  tile("tSocial",social,T_SOCIAL);
-  tile("tCore",core3,null);
-  document.getElementById("tCore").textContent=core3+"/7";
-
-  /* --- sleep regularity --- */
-  const wakes=days.map(d=>DB[d]&&DB[d].wakeT?mins(DB[d].wakeT):null).filter(v=>v!==null);
-  let spread=null;
-  if(wakes.length>=2){spread=Math.max(...wakes)-Math.min(...wakes);document.getElementById("sWakeSpread").textContent=spread+"m";}
-  else document.getElementById("sWakeSpread").textContent="—";
-
-  const durs=days.map(d=>sleepMins(DB[d])).filter(v=>v!==null);
-  document.getElementById("sSleep").textContent=durs.length?(durs.reduce((a,b)=>a+b,0)/durs.length/60).toFixed(1)+"h":"—";
-
-  let hit=0,poss=0;
-  days.forEach(d=>{if(d>todayIso)return;const r=DB[d];if(!r)return;KEYS.forEach(k=>{poss++;if(r[k])hit++;});});
-  document.getElementById("sAdh").textContent=poss?Math.round(hit/poss*100)+"%":"—";
-
-  const fs=days.map(d=>DB[d]&&DB[d].focus?+DB[d].focus:null).filter(v=>v!==null&&!isNaN(v));
-  document.getElementById("sFocus").textContent=fs.length?Math.round(fs.reduce((a,b)=>a+b,0)/fs.length)+"m":"—";
-
-  const rv=document.getElementById("rVerdict"); rv.className="verdict";
-  let c,t,dsc;
-  if(spread===null){c="v-warn";t="Not enough wake-time data yet";dsc="Log wake time on at least two days. Regularity is the variable worth watching — your duration is already in range.";}
-  else if(spread<=30){c="v-good";t="Wake time is anchored ("+spread+" min spread)";dsc="This is the state the regularity literature associates with better outcomes — and it's the gate on whether the 6/7am gym session happens. Hold it at weekends too.";}
-  else if(spread<=75){c="v-warn";t="Wake time drifting ("+spread+" min spread)";dsc="Aim for under 30 min. Phillips et al. 2017: irregular sleepers with identical total sleep time still had melatonin onset ~2.6h later. Phase, not duration.";}
-  else {c="v-crit";t="Wake time is highly variable ("+spread+" min spread)";dsc="A "+spread+"-minute spread re-sets your circadian phase most days — and it's the reason the early sessions don't happen. Fixable without sleeping more.";}
-  rv.classList.add(c);
-  document.getElementById("rvT").textContent=t;
-  document.getElementById("rvD").textContent=dsc;
+  const gp = el("garminPill");
+  if (gp) gp.style.display = (r && (r.wakeT || r.bedT)) ? "inline-block" : "none";
 }
 
-/* ---------- CSV ---------- */
-function csvEsc(s){ s=String(s==null?"":s); return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
-function toCSV(){
-  const hdr=["date","wake_within_30m","morning_light","trained","caffeine_plan","both_blocks","logged",
-             "core3_all","training_type","wake_time","bed_time","sleep_hours","longest_block_min",
-             "social_contact","protein_target","note"];
-  const rows=Object.keys(DB).sort().map(d=>{
-    const r=DB[d]||{}; const sm=sleepMins(r);
-    return [d, r.wake?1:0, r.light?1:0, r.train?1:0, r.caff?1:0, r.block?1:0, r.log?1:0,
-            CORE3.every(k=>r[k])?1:0, r.trainType||"",
-            r.wakeT||"", r.bedT||"", sm===null?"":(sm/60).toFixed(2), r.focus||"",
-            r.social?1:0, r.protein?1:0,
-            r.note||""].map(csvEsc).join(",");
-  });
-  return hdr.join(",")+"\n"+rows.join("\n")+"\n";
+function meter(id, label, val, target) {
+  const n = el(id); if (!n) return;
+  const pct = target ? Math.min(100, Math.round((val / target) * 100)) : 0;
+  const done = val >= target;
+  n.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "mhead";
+  const l = document.createElement("span"); l.textContent = label;
+  const v = document.createElement("b");
+  v.textContent = val + "/" + target;
+  v.className = done ? "ok" : "";
+  head.appendChild(l); head.appendChild(v);
+  const track = document.createElement("div"); track.className = "mtrack";
+  const fill = document.createElement("i");
+  fill.className = "mfill" + (done ? " ok" : "");
+  fill.style.width = pct + "%";
+  track.appendChild(fill);
+  n.appendChild(head); n.appendChild(track);
 }
-function downloadCSV(){
-  const blob=new Blob([toCSV()],{type:"text/csv;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download="best-jared-"+isoDay(new Date())+".csv";
+
+/* ===== PROGRAMME ===== */
+function renderProgramme() {
+  const wk = progWeek(isoDay(new Date()));
+  setText("pgWeekNum", wk ? String(wk) : "—");
+  setText("pgWeekOf", wk ? (wk <= 16 ? "of 16" : "past week 16") : "no start date set");
+
+  const plan = dayPlan(CUR);
+  const box = el("pgToday");
+  box.innerHTML = "";
+  const h = document.createElement("div"); h.className = "pgkind";
+  h.textContent = plan.kind === "run" ? "Run day"
+    : plan.kind === "lift" ? (plan.template ? "Lift day — session " + plan.template : "Lift day")
+    : "Rest day";
+  box.appendChild(h);
+  const d = document.createElement("p"); d.className = "note"; d.textContent = plan.detail;
+  box.appendChild(d);
+  if (plan.note) { const n = document.createElement("p"); n.className = "why"; n.textContent = plan.note; box.appendChild(n); }
+
+  if (plan.kind === "lift" && plan.template) {
+    const tbl = document.createElement("table"); tbl.className = "lift";
+    const hd = document.createElement("tr");
+    ["Exercise", "Sets × reps", "RIR", "Last load"].forEach(x => {
+      const th = document.createElement("th"); th.textContent = x; hd.appendChild(th);
+    });
+    tbl.appendChild(hd);
+    LIFT_TEMPLATES[plan.template].forEach(row => {
+      const tr = document.createElement("tr");
+      const c1 = document.createElement("td"); c1.textContent = row.lift; c1.className = "rowh";
+      const c2 = document.createElement("td"); c2.textContent = row.sets + " × " + row.reps;
+      const c3 = document.createElement("td"); c3.textContent = row.rir;
+      const c4 = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.className = "loadin"; inp.placeholder = "—";
+      inp.value = PREFS.loads[row.lift] || "";
+      inp.setAttribute("aria-label", "Last load for " + row.lift);
+      inp.addEventListener("change", () => {
+        if (inp.value.trim()) PREFS.loads[row.lift] = inp.value.trim();
+        else delete PREFS.loads[row.lift];
+        savePrefs();
+      });
+      c4.appendChild(inp);
+      [c1, c2, c3, c4].forEach(c => tr.appendChild(c));
+      tbl.appendChild(tr);
+    });
+    box.appendChild(tbl);
+    const p = document.createElement("p"); p.className = "why"; p.textContent = LIFT_PROGRESSION;
+    box.appendChild(p);
+  }
+
+  if (plan.kind === "run") {
+    const c = runCeiling(isoDay(new Date()));
+    const m = el("pgCeiling");
+    m.innerHTML = "";
+    if (c.known) {
+      meterInto(m, "Longest run, last 30 days " + c.longest.toFixed(1) + " km",
+        "Ceiling today " + c.ceiling.toFixed(1) + " km", 1);
+    } else {
+      const p = document.createElement("p"); p.className = "note";
+      p.textContent = (wk === 1 || !wk)
+        ? "Week 1 caps you at ~3 km total running. Starting at 3 km/week rather than 6 cut novice injury risk by 31.2% — the one number here with a per-protocol RCT behind it."
+        : "No run distances logged in the last 30 days, so no ceiling can be computed yet. Garmin fills this in once you log a run.";
+      m.appendChild(p);
+    }
+  } else { el("pgCeiling").innerHTML = ""; }
+
+  /* 16-week rail */
+  const rail = el("pgRail");
+  rail.innerHTML = "";
+  for (let i = 1; i <= 16; i++) {
+    const cell = document.createElement("div");
+    cell.className = "wkcell" + (wk === i ? " now" : "") + (wk && i < wk ? " past" : "");
+    const n = document.createElement("b"); n.textContent = String(i);
+    cell.appendChild(n);
+    const dots = document.createElement("div"); dots.className = "wkdots";
+    [2, 4].forEach(dow => {
+      const dot = document.createElement("i");
+      let cls = "dot";
+      if (wk && hasVal(PREFS.programStart)) {
+        const iso = addDays(PREFS.programStart, (i - 1) * 7 + ((dow - dayFromIso(PREFS.programStart).getDay() + 7) % 7));
+        const r = DB[iso];
+        if (r && (r.trainType === "run" || r.train2 === "run")) cls += " done";
+        else if (i < wk) cls += " miss";
+      }
+      dot.className = cls;
+      dots.appendChild(dot);
+    });
+    cell.appendChild(dots);
+    cell.title = "Week " + i;
+    rail.appendChild(cell);
+  }
+
+  /* week 17 answer */
+  const w17 = el("pgW17");
+  w17.value = PREFS.week17 || "";
+  setText("pgHorizon", horizonLine());
+  setText("pgInjury", (wk && wk <= NOVICE_INJURY_WINDOW.throughWeek) ? NOVICE_INJURY_WINDOW.note : "");
+
+  const gl = el("pgGuards"); gl.innerHTML = "";
+  RUN_GUARDRAILS.forEach(g => {
+    const li = document.createElement("li");
+    const b = document.createElement("b"); b.textContent = g.rule;
+    const s = document.createElement("span"); s.textContent = " " + g.why;
+    li.appendChild(b); li.appendChild(s); gl.appendChild(li);
+  });
+  setText("pgTenPct", TEN_PERCENT_RULE_IS_DEAD);
+  setText("pgConcurrent", CONCURRENT_RULE);
+  const neg = el("pgNegations"); neg.innerHTML = "";
+  LIFT_NEGATIONS.forEach(t => { const li = document.createElement("li"); li.textContent = t; neg.appendChild(li); });
+  setText("pgSets", SETS_PER_MUSCLE.note);
+  const oe = el("pgExpect"); oe.innerHTML = "";
+  OUTCOME_EXPECTATIONS.forEach(t => { const li = document.createElement("li"); li.textContent = t; oe.appendChild(li); });
+}
+
+function meterInto(node, label, valueText, pct) {
+  const head = document.createElement("div"); head.className = "mhead";
+  const l = document.createElement("span"); l.textContent = label;
+  const v = document.createElement("b"); v.textContent = valueText;
+  head.appendChild(l); head.appendChild(v);
+  const track = document.createElement("div"); track.className = "mtrack";
+  const fill = document.createElement("i"); fill.className = "mfill";
+  fill.style.width = Math.round(pct * 100) + "%";
+  track.appendChild(fill);
+  node.appendChild(head); node.appendChild(track);
+}
+
+function horizonLine() {
+  if (!hasVal(PREFS.programStart)) return "";
+  const n = daysBetween(PREFS.programStart, isoDay(new Date())) + 1;
+  return "Day " + n + " of a median " + HABIT_HORIZON.medianDays + " to habit formation (~" +
+    HABIT_HORIZON.exerciseDays + " for exercise). Range " + HABIT_HORIZON.rangeLow + "–" +
+    HABIT_HORIZON.rangeHigh + " days. This number only goes up — a missed day does not reset it.";
+}
+
+/* ===== REVIEW ===== */
+function renderReview() {
+  const days = filteredDays(), todayIso = isoDay(new Date());
+  const past = days.filter(d => d <= todayIso);
+  const logged = past.filter(d => DB[d]);
+  setText("rvCoverage", logged.length + " of " + past.length + " days logged (" +
+    (past.length ? Math.round(logged.length / past.length * 100) : 0) + "%)");
+  setText("rvFraming", REVIEW_FRAMING);
+
+  /* review date */
+  if (hasVal(PREFS.programStart)) {
+    const n = daysBetween(PREFS.programStart, todayIso) + 1;
+    const due = addDays(PREFS.programStart, 55);
+    setText("rvReviewDate", "Day " + n + " of 56 · review due " + fmtShortDay(due));
+    const m = el("rvReviewMeter");
+    if (m) m.style.width = Math.min(100, Math.round(n / 56 * 100)) + "%";
+  } else {
+    setText("rvReviewDate", "Set a programme start date in Setup to get a review date.");
+    const m = el("rvReviewMeter"); if (m) m.style.width = "0%";
+  }
+
+  /* triage rows: 10 items, days-LOGGED denominator, fixed order */
+  const rows = [];
+  KEYS.forEach(k => {
+    if (isParked(k)) return;
+    const poss = logged.length, hitN = logged.filter(d => DB[d][k]).length;
+    rows.push({ key: k, name: NAMES[k], core: CORE3.indexOf(k) >= 0,
+      hit: hitN, poss: poss, rate: poss ? hitN / poss : 0 });
+  });
+  const weeks = {};
+  past.forEach(d => { const w = weekOf(d)[0]; (weeks[w] = weeks[w] || []).push(d); });
+  const wkKeys = Object.keys(weeks).sort();
+  function weeklyRate(pick) {
+    let hitN = 0, poss = 0;
+    wkKeys.forEach(w => { if (weeks[w].some(d => DB[d])) { poss++; if (pick(weeks[w])) hitN++; } });
+    return { hit: hitN, poss: poss, rate: poss ? hitN / poss : 0 };
+  }
+  const countIn = (ds, t) => ds.reduce((a, d) => {
+    const r = DB[d]; if (!r) return a;
+    return a + (r.trainType === t ? 1 : 0) + (r.train2 === t ? 1 : 0);
+  }, 0);
+  if (!isParked("wkLift")) { const s = weeklyRate(ds => countIn(ds, "lift") >= T_LIFT);
+    rows.push({ key: "wkLift", name: "Lifts ≥3/wk", core: false, hit: s.hit, poss: s.poss, rate: s.rate }); }
+  if (!isParked("wkRun")) { const s = weeklyRate(ds => countIn(ds, "run") >= T_RUN);
+    rows.push({ key: "wkRun", name: "Runs ≥2/wk", core: false, hit: s.hit, poss: s.poss, rate: s.rate }); }
+  if (!isParked("wkSocial")) { const s = weeklyRate(ds => ds.filter(d => DB[d] && DB[d].social).length >= T_SOCIAL);
+    rows.push({ key: "wkSocial", name: "Social ≥2/wk", core: false, hit: s.hit, poss: s.poss, rate: s.rate }); }
+  if (!isParked("wkProtein")) { const s = weeklyRate(ds => ds.filter(d => DB[d] && DB[d].protein).length >= T_PROTEIN);
+    rows.push({ key: "wkProtein", name: "Protein ≥5/wk", core: false, hit: s.hit, poss: s.poss, rate: s.rate }); }
+
+  const alive = rows.filter(r => r.rate >= 0.5).length;
+  const enough = logged.length >= 14;
+  setText("rvLead", enough ? String(alive) : String(logged.length));
+  setText("rvLeadLabel", enough
+    ? "of " + rows.length + " tracked items still getting ticked"
+    : "days logged — verdicts start at 14");
+
+  const tri = el("triageRows"); tri.innerHTML = "";
+  rows.forEach(r => {
+    const div = document.createElement("div"); div.className = "trow";
+    const nm = document.createElement("span"); nm.className = "tname";
+    if (r.core) { const dot = document.createElement("i"); dot.className = "core-dot"; nm.appendChild(dot); }
+    nm.appendChild(document.createTextNode(r.name));
+    const chip = document.createElement("span");
+    if (enough) {
+      const v = r.rate >= 0.7 ? "keep" : r.rate >= 0.4 ? "watch" : "park";
+      const canPark = logged.length >= 28 && !r.core;
+      chip.className = "chip " + v;
+      chip.textContent = v === "keep" ? "✓ Keep" : v === "watch" ? "● Watch"
+        : (canPark ? "▲ Park candidate" : "▲ Low");
+      if (canPark) {
+        const b = document.createElement("button");
+        b.className = "parkbtn"; b.textContent = "Park";
+        b.addEventListener("click", () => {
+          PREFS.parked[r.key] = isoDay(new Date()); savePrefs(); render();
+        });
+        chip.appendChild(b);
+      }
+    } else { chip.className = "chip"; chip.textContent = "—"; }
+    const cnt = document.createElement("span"); cnt.className = "tcount";
+    cnt.textContent = r.hit + "/" + r.poss;
+    div.appendChild(nm); div.appendChild(cnt); div.appendChild(chip);
+    tri.appendChild(div);
+  });
+  setText("rvTriageSub", enough
+    ? "Sorted in fixed order, never re-ranked under you. The accent marks the lowest — that is the park candidate, not a verdict."
+    : "Verdicts are suppressed until 14 days are logged. Median habit formation is 66 days; judging an item at day " +
+      logged.length + " would be noise.");
+
+  /* wake diagnosis stats */
+  const wakes = past.filter(d => DB[d] && DB[d].wakeT).map(d => mins(DB[d].wakeT)).sort((a, b) => a - b);
+  if (wakes.length) {
+    const med = wakes[Math.floor(wakes.length / 2)];
+    const q1 = wakes[Math.floor(wakes.length * 0.25)], q3 = wakes[Math.floor(wakes.length * 0.75)];
+    setText("wkMedian", minToHHMM(med));
+    setText("wkIQR", (q3 - q1) + "m");
+    let diffs = 0, dn = 0;
+    for (let i = 1; i < past.length; i++) {
+      const a = DB[past[i - 1]], b = DB[past[i]];
+      if (a && b && a.wakeT && b.wakeT) { diffs += Math.abs(mins(b.wakeT) - mins(a.wakeT)); dn++; }
+    }
+    setText("wkNight", dn ? Math.round(diffs / dn) + "m" : "—");
+    const inBand = past.filter(d => {
+      const r = DB[d], t = targetFor(d);
+      return r && r.wakeT && t !== null && Math.abs(mins(r.wakeT) - t) <= 30;
+    }).length;
+    setText("wkBand", wakes.length ? Math.round(inBand / wakes.length * 100) + "%" : "—");
+    const v = el("wkVerdict"); v.className = "verdict";
+    const spread = wakes[wakes.length - 1] - wakes[0];
+    const tgt = targetFor(past[past.length - 1]);
+    const off = tgt === null ? null : med - tgt;
+    let cls, t, d;
+    if (dn && (diffs / dn) <= 30 && off !== null && Math.abs(off) > 45) {
+      cls = "v-warn"; t = "Regular, but phase-shifted";
+      d = "Night-to-night change averages " + Math.round(diffs / dn) + " min — that is anchored. " +
+          "But the median is " + minToHHMM(med) + " against a " + minToHHMM(tgt) + " target, " +
+          Math.round(Math.abs(off)) + " min " + (off > 0 ? "late" : "early") +
+          ". That is a phase problem, not a regularity problem, and morning light is the lever that moves it.";
+    } else if (dn && (diffs / dn) <= 30) {
+      cls = "v-good"; t = "Anchored";
+      d = "Night-to-night change averages " + Math.round(diffs / dn) + " min and the median sits on target. This is the state the regularity literature associates with better outcomes.";
+    } else {
+      cls = "v-crit"; t = "Variable";
+      d = "Wake time moves " + (dn ? Math.round(diffs / dn) : spread) +
+          " min night to night. Phillips 2017: irregular sleepers with identical total sleep time still had melatonin onset ~2.6h later. Phase, not duration.";
+    }
+    v.classList.add(cls);
+    setText("wkvT", t); setText("wkvD", d);
+    const durs = past.map(d => sleepMins(DB[d])).filter(x => x !== null).sort((a, b) => a - b);
+    setText("wkSleep", durs.length ? (durs[Math.floor(durs.length / 2)] / 60).toFixed(1) + "h" : "—");
+  } else {
+    ["wkMedian", "wkIQR", "wkNight", "wkBand", "wkSleep"].forEach(id => setText(id, "—"));
+    const v = el("wkVerdict"); v.className = "verdict v-warn";
+    setText("wkvT", "No wake times in this window");
+    setText("wkvD", "Garmin writes these each morning once the sync is running, or add one by hand under Details on Today.");
+  }
+
+  /* notes */
+  const nt = el("noteRows"); nt.innerHTML = "";
+  const noted = past.filter(d => DB[d] && DB[d].note).reverse();
+  setText("rvNoteCount", "notes on " + noted.length + " of " + logged.length + " logged days");
+  noted.slice(0, 60).forEach(d => {
+    const tr = document.createElement("tr");
+    const a = document.createElement("td"); a.textContent = fmtShortDay(d); a.className = "rowh";
+    const b = document.createElement("td"); b.textContent = DB[d].note; b.className = "notecell";
+    const c = document.createElement("td");
+    const missed = KEYS.filter(k => !DB[d][k]).map(k => NAMES[k]);
+    c.textContent = missed.length ? missed.join(", ") : "—";
+    c.className = "misscell";
+    tr.appendChild(a); tr.appendChild(b); tr.appendChild(c);
+    nt.appendChild(tr);
+  });
+  if (!noted.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 3; td.className = "empty";
+    td.textContent = "No notes yet. Harkin 2016: recorded beats unrecorded.";
+    tr.appendChild(td); nt.appendChild(tr);
+  }
+
+  renderTableTwin(past);
+  el("rvCharts").style.display = REVIEW_TABLE ? "none" : "block";
+  el("rvTable").style.display = REVIEW_TABLE ? "block" : "none";
+  setText("rvToggle", REVIEW_TABLE ? "Show charts" : "Show table");
+
+  /* hand the charts their data */
+  WAKE_DAYS = days; TRIAGE_ROWS = rows; HEAT_DAYS = days;
+}
+
+let WAKE_DAYS = [], TRIAGE_ROWS = [], HEAT_DAYS = [];
+
+function renderTableTwin(days) {
+  const tb = el("twinBody"); tb.innerHTML = "";
+  const rows = days.filter(d => DB[d]).reverse();
+  rows.slice(0, 200).forEach(d => {
+    const r = DB[d], tr = document.createElement("tr");
+    const sm = sleepMins(r);
+    const cells = [fmtShortDay(d)]
+      .concat(KEYS.map(k => r[k] ? "✓" : "–"))
+      .concat([r.wakeT || "–", r.bedT || "–", sm === null ? "–" : (sm / 60).toFixed(1) + "h",
+               r.trainType || "–", r.train2 || "–", hasVal(r.runKm) ? r.runKm + " km" : "–",
+               r.social ? "✓" : "–", r.protein ? "✓" : "–", r.note || ""]);
+    cells.forEach((c, i) => {
+      const td = document.createElement("td");
+      td.textContent = c;
+      if (i === 0) td.className = "rowh";
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  if (!rows.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 18; td.className = "empty"; td.textContent = "Nothing logged in this window.";
+    tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+function toggleReviewTable() { REVIEW_TABLE = !REVIEW_TABLE; render(); }
+function setWindow(n) { WINDOW_DAYS = +n; render(); }
+function setDayFilter(v) { DAYFILTER = v; render(); }
+
+/* ===== SETUP ===== */
+function renderSetup() {
+  el("sProgStart").value = PREFS.programStart || "";
+  el("sTargetWake").value = PREFS.targetWake || "";
+  el("sTargetWakeWknd").value = PREFS.targetWakeWeekend || "";
+  el("sBodyweight").value = PREFS.bodyweightKg || "";
+  el("sHrMax").value = PREFS.hrMax || "";
+  const bw = +PREFS.bodyweightKg;
+  setText("sProteinTarget", bw ? Math.round(bw * PROTEIN.gPerKg) + " g/day on " + PROTEIN.daysPerWeek + "+ days" : "set bodyweight to get a number");
+  setText("sProteinNote", PROTEIN.note);
+  const hm = +PREFS.hrMax;
+  setText("sHrNote", hm ? "Weeks 9–16 target 90–95% HRmax = " + Math.round(hm * 0.9) + "–" + Math.round(hm * 0.95) + " bpm."
+    : "Without this, the weeks 9–16 interval prescription is a percentage of an unknown number.");
+  setText("sCreatine", CREATINE.dose + " — " + CREATINE.note);
+  setText("sSocialNote", SOCIAL.note + " " + SOCIAL.framing);
+  setText("sCalibration", CALIBRATION);
+  setText("sNoBench", NO_BENCHMARKING);
+
+  const pk = el("parkedList"); pk.innerHTML = "";
+  PARKED.forEach(p => {
+    const d = document.createElement("details");
+    const s = document.createElement("summary");
+    s.textContent = p.name;
+    const tag = document.createElement("span");
+    tag.className = "ptag " + p.severity;
+    tag.textContent = p.severity.replace("-", " ");
+    s.appendChild(tag);
+    const body = document.createElement("p"); body.className = "why"; body.textContent = p.why;
+    d.appendChild(s); d.appendChild(body);
+    pk.appendChild(d);
+  });
+
+  const un = el("unparkList"); un.innerHTML = "";
+  const parkedKeys = Object.keys(PREFS.parked);
+  if (!parkedKeys.length) {
+    const p = document.createElement("p"); p.className = "note";
+    p.textContent = "Nothing parked. Items become parkable on the Review tab after 28 logged days.";
+    un.appendChild(p);
+  } else parkedKeys.forEach(k => {
+    const row = document.createElement("div"); row.className = "unpark";
+    const s = document.createElement("span");
+    s.textContent = (NAMES[k] || k) + " — parked " + PREFS.parked[k];
+    const b = document.createElement("button"); b.textContent = "Un-park";
+    b.addEventListener("click", () => { delete PREFS.parked[k]; savePrefs(); render(); });
+    row.appendChild(s); row.appendChild(b);
+    un.appendChild(row);
+  });
+}
+function savePrefsFromSetup() {
+  PREFS.programStart = el("sProgStart").value;
+  PREFS.targetWake = el("sTargetWake").value;
+  PREFS.targetWakeWeekend = el("sTargetWakeWknd").value;
+  PREFS.bodyweightKg = el("sBodyweight").value;
+  PREFS.hrMax = el("sHrMax").value;
+  savePrefs(); render();
+}
+function saveW17() { PREFS.week17 = el("pgW17").value; savePrefs(); }
+
+/* ---------- CSV ----------
+   APPEND-ONLY. New columns go on the end, never inserted, or every
+   CSV already downloaded misaligns against a new one. This header
+   must stay byte-identical to CSV_HEADER in sync/garmin_sync.py. */
+function csvEsc(s) {
+  s = String(s == null ? "" : s);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function toCSV() {
+  const hdr = ["date", "wake_within_30m", "morning_light", "trained", "caffeine_plan",
+    "both_blocks", "logged", "core3_all", "training_type", "wake_time", "bed_time",
+    "sleep_hours", "longest_block_min", "social_contact", "protein_target", "note",
+    "training_type_2", "run_km", "lift_template"];
+  const rows = Object.keys(DB).sort().map(d => {
+    const r = DB[d] || {}, sm = sleepMins(r);
+    return [d, r.wake ? 1 : 0, r.light ? 1 : 0, r.train ? 1 : 0, r.caff ? 1 : 0,
+      r.block ? 1 : 0, r.log ? 1 : 0, CORE3.every(k => r[k]) ? 1 : 0, r.trainType || "",
+      r.wakeT || "", r.bedT || "", sm === null ? "" : (sm / 60).toFixed(2), r.focus || "",
+      r.social ? 1 : 0, r.protein ? 1 : 0, r.note || "",
+      r.train2 || "", r.runKm || "", r.liftTpl || ""].map(csvEsc).join(",");
+  });
+  return hdr.join(",") + "\n" + rows.join("\n") + "\n";
+}
+function downloadCSV() {
+  const blob = new Blob([toCSV()], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = "best-jared-" + isoDay(new Date()) + ".csv";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-  msg("CSV downloaded — "+Object.keys(DB).length+" day(s).");
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  msg("CSV downloaded — " + Object.keys(DB).length + " day(s).");
 }
 
 /* ---------- merge + gist sync ---------- */
-/* Newest edit still wins the day, but field by field rather than wholesale —
-   and anything this device changed and hasn't pushed yet survives regardless,
-   so the 08:20 Garmin job can no longer swallow an unsynced tick or note. */
-function merge(local,remote,dirty){
-  dirty=dirty||{};
-  const out={};
-  Object.keys(local).forEach(k=>out[k]=local[k]);
-  Object.keys(remote).forEach(day=>{
-    const mine=out[day], theirs=remote[day];
-    if(!mine){ out[day]=theirs; return; }
-    const theirsNewer=(theirs._u||0)>(mine._u||0);
-    const merged=Object.assign({}, theirsNewer?mine:theirs, theirsNewer?theirs:mine);
-    (dirty[day]||[]).forEach(f=>{ if(f in mine)merged[f]=mine[f]; });
-    merged._u=Math.max(mine._u||0, theirs._u||0);
-    out[day]=merged;
+function merge(local, remote, dirty) {
+  dirty = dirty || {};
+  const out = {};
+  Object.keys(local).forEach(k => out[k] = local[k]);
+  Object.keys(remote).forEach(day => {
+    const mine = out[day], theirs = remote[day];
+    if (!mine) { out[day] = theirs; return; }
+    const theirsNewer = (theirs._u || 0) > (mine._u || 0);
+    const merged = Object.assign({}, theirsNewer ? mine : theirs, theirsNewer ? theirs : mine);
+    (dirty[day] || []).forEach(f => { if (f in mine) merged[f] = mine[f]; });
+    merged._u = Math.max(mine._u || 0, theirs._u || 0);
+    out[day] = merged;
   });
   return out;
 }
-function setPill(el,txt,cls){const p=document.getElementById(el);p.textContent=txt;p.className="pill"+(cls?" "+cls:"");}
-function msg(t){document.getElementById("syncMsg").textContent=t||"";}
+function setPill(id, txt, cls) { const p = el(id); if (p) { p.textContent = txt; p.className = "pill" + (cls ? " " + cls : ""); } }
+function msg(t) { setText("syncMsg", t || ""); }
 
-async function gh(path,opts,tok){
-  const r=await fetch("https://api.github.com"+path, Object.assign({
-    headers:{ "Authorization":"Bearer "+tok, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" }
-  },opts||{}));
-  if(!r.ok){ let detail=""; try{ detail=(await r.json()).message||""; }catch(e){}
-    throw new Error("GitHub "+r.status+(detail?" — "+detail:"")); }
+async function gh(path, opts, tok) {
+  const r = await fetch("https://api.github.com" + path, Object.assign({
+    headers: { "Authorization": "Bearer " + tok, "Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28" }
+  }, opts || {}));
+  if (!r.ok) {
+    let detail = ""; try { detail = (await r.json()).message || ""; } catch (e) {}
+    throw new Error("GitHub " + r.status + (detail ? " — " + detail : ""));
+  }
   return r.json();
 }
-function gistPayload(){
-  return { [GIST_FILE]:{content:JSON.stringify({v:2,data:DB},null,1)},
-           [CSV_FILE]:{content:toCSV()} };
+/* Spread REMOTE_EXTRA first so any top-level key this build doesn't
+   know about survives the round trip instead of being destroyed. */
+function gistPayload() {
+  const body = Object.assign({}, REMOTE_EXTRA, { v: 2, data: DB, prefs: PREFS });
+  return { [GIST_FILE]: { content: JSON.stringify(body, null, 1) },
+           [CSV_FILE]: { content: toCSV() } };
 }
-function queueSync(){
-  if(!lsGet(LS_TOK,"")||!lsGet(LS_GIST,""))return;
+function queueSync() {
+  if (!lsGet(LS_TOK, "") || !lsGet(LS_GIST, "")) return;
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(()=>syncNow(true),4000);
+  syncTimer = setTimeout(() => syncNow(true), 4000);
 }
-async function syncNow(quiet){
-  const tokIn=document.getElementById("ghTok").value.trim();
-  const gidIn=document.getElementById("ghGist").value.trim();
-  if(tokIn){ lsSet(LS_TOK,tokIn); document.getElementById("ghTok").value=""; }
-  if(gidIn){ lsSet(LS_GIST,gidIn); }
-  const tok=lsGet(LS_TOK,""); let gid=lsGet(LS_GIST,"");
-  if(!tok){ setPill("syncPill","not configured",""); msg("Paste a token first, or keep local-only saving plus Download CSV."); return; }
+async function syncNow(quiet) {
+  const tokIn = el("ghTok").value.trim(), gidIn = el("ghGist").value.trim();
+  if (tokIn) { lsSet(LS_TOK, tokIn); el("ghTok").value = ""; }
+  if (gidIn) { lsSet(LS_GIST, gidIn); }
+  const tok = lsGet(LS_TOK, ""); let gid = lsGet(LS_GIST, "");
+  if (!tok) { setPill("syncPill", "not configured", ""); msg("Paste a token first, or keep local-only saving plus Download CSV."); return; }
 
-  setPill("syncPill","syncing…","busy"); if(!quiet)msg("");
-  document.getElementById("btnSync").disabled=true;
-  try{
-    if(gid){
-      const g=await gh("/gists/"+gid,null,tok);
-      const f=g.files&&g.files[GIST_FILE];
-      if(f&&f.content){
-        let remote={}; try{ remote=JSON.parse(f.content).data||{}; }catch(e){}
-        DB=prune(merge(DB,remote,loadDirty())); persist(); loadDay(); render();
+  setPill("syncPill", "syncing…", "busy"); if (!quiet) msg("");
+  el("btnSync").disabled = true;
+  try {
+    if (gid) {
+      const g = await gh("/gists/" + gid, null, tok);
+      const f = g.files && g.files[GIST_FILE];
+      if (f && f.content) {
+        let body = {}; try { body = JSON.parse(f.content) || {}; } catch (e) {}
+        const known = { v: 1, data: 1, prefs: 1 };
+        REMOTE_EXTRA = {};
+        Object.keys(body).forEach(k => { if (!known[k]) REMOTE_EXTRA[k] = body[k]; });
+        DB = prune(merge(DB, body.data || {}, loadDirty()));
+        if (body.prefs && (body.prefs._u || 0) > (PREFS._u || 0)) {
+          PREFS = Object.assign({}, DEFAULT_PREFS, body.prefs);
+          if (!PREFS.loads) PREFS.loads = {};
+          if (!PREFS.parked) PREFS.parked = {};
+          lsSet(LS_PREF, JSON.stringify(PREFS));
+        }
+        persist(); loadDay(); render();
       }
-      /* Snapshot first: edits made while the PATCH is in flight stay dirty. */
-      const sent=loadDirty();
-      await gh("/gists/"+gid,{method:"PATCH",body:JSON.stringify({files:gistPayload()})},tok);
+      const sent = loadDirty();
+      await gh("/gists/" + gid, { method: "PATCH", body: JSON.stringify({ files: gistPayload() }) }, tok);
       dropDirty(sent);
-    }else{
-      const sent=loadDirty();
-      const g=await gh("/gists",{method:"POST",body:JSON.stringify({
-        description:"Building the Best Jared — private log", public:false, files:gistPayload()
-      })},tok);
+    } else {
+      const sent = loadDirty();
+      const g = await gh("/gists", { method: "POST", body: JSON.stringify({
+        description: "Building the Best Jared — private log", public: false, files: gistPayload()
+      }) }, tok);
       dropDirty(sent);
-      gid=g.id; lsSet(LS_GIST,gid); document.getElementById("ghGist").value=gid;
-      msg("Created secret gist "+gid+" — copy that ID onto your other device.");
+      gid = g.id; lsSet(LS_GIST, gid); el("ghGist").value = gid;
+      msg("Created secret gist " + gid + " — copy that ID onto your other device.");
     }
-    document.getElementById("ghGist").value=lsGet(LS_GIST,"");
-    setPill("syncPill","synced "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}),"ok");
-  }catch(e){
-    setPill("syncPill","sync failed","err");
-    msg(e.message+". A 401/403 means the token is wrong, expired, or missing Gists: Read and write.");
-  }finally{ document.getElementById("btnSync").disabled=false; }
+    el("ghGist").value = lsGet(LS_GIST, "");
+    setPill("syncPill", "synced " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), "ok");
+  } catch (e) {
+    setPill("syncPill", "sync failed", "err");
+    msg(e.message + ". A 401/403 means the token is wrong, expired, or missing Gists: Read and write.");
+  } finally { el("btnSync").disabled = false; }
 }
-function forgetToken(){
-  lsDel(LS_TOK); document.getElementById("ghTok").value="";
-  setPill("syncPill","not configured","");
+function forgetToken() {
+  lsDel(LS_TOK); el("ghTok").value = "";
+  setPill("syncPill", "not configured", "");
   msg("Token removed from this device. Log still saved locally; gist untouched.");
 }
-function openGist(){
-  const gid=lsGet(LS_GIST,"");
-  if(!gid){ msg("No gist yet — sync once to create it."); return; }
-  window.open("https://gist.github.com/"+gid,"_blank","noopener");
+function openGist() {
+  const gid = lsGet(LS_GIST, "");
+  if (!gid) { msg("No gist yet — sync once to create it."); return; }
+  window.open("https://gist.github.com/" + gid, "_blank", "noopener");
 }
-
-/* ---------- export / import ---------- */
-function exportData(){
-  const box=document.getElementById("ioBox");
-  box.value=JSON.stringify({v:2,data:DB}); box.select();
-  try{document.execCommand("copy");}catch(e){}
+function exportData() {
+  const box = el("ioBox");
+  box.value = JSON.stringify({ v: 2, data: DB, prefs: PREFS });
+  box.select();
+  try { document.execCommand("copy"); } catch (e) {}
   msg("Copied to clipboard.");
 }
-function importData(){
-  const raw=document.getElementById("ioBox").value.trim();
-  if(!raw){msg("Paste exported text into the box first.");return;}
-  try{
-    const o=JSON.parse(raw); if(!o.data)throw 0;
-    DB=prune(merge(DB,o.data)); persist(); loadDay(); render();
-    msg("Merged "+Object.keys(o.data).length+" day(s).");
-  }catch(e){ msg("That doesn't look like exported data."); }
+function importData() {
+  const raw = el("ioBox").value.trim();
+  if (!raw) { msg("Paste exported text into the box first."); return; }
+  try {
+    const o = JSON.parse(raw); if (!o.data) throw 0;
+    DB = prune(merge(DB, o.data));
+    if (o.prefs) { PREFS = Object.assign({}, DEFAULT_PREFS, o.prefs); lsSet(LS_PREF, JSON.stringify(PREFS)); }
+    persist(); loadDay(); render();
+    msg("Merged " + Object.keys(o.data).length + " day(s).");
+  } catch (e) { msg("That doesn't look like exported data."); }
+}
+
+/* ---------- ui bits ---------- */
+function toggleWhy(btn) {
+  const row = btn.closest(".item");
+  if (row) row.classList.toggle("open");
+}
+function toggleTheme() {
+  const r = document.documentElement;
+  const next = r.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  r.setAttribute("data-theme", next); lsSet(LS_THEME, next);
+  if (typeof chartsOnShow === "function") chartsOnShow();
 }
 
 /* ---------- boot ---------- */
-let booted=false;
-function boot(){
-  if(booted)return; booted=true;
-  loadLocal(); loadPrefs(); loadDay(); calcCaff(); render();
-  const gid=lsGet(LS_GIST,""); if(gid)document.getElementById("ghGist").value=gid;
-  if(lsGet(LS_TOK,"")){ setPill("syncPill","token saved on this device","ok"); syncNow(true); }
-  const n=Object.keys(DB).length;
-  const sp=document.getElementById("savePill");
-  if(n===0){ sp.textContent="saves automatically"; }
-  else { sp.textContent=n+" days logged"; sp.className="pill ok"; }
+let booted = false;
+function boot() {
+  if (booted) return; booted = true;
+  loadLocal(); loadPrefs();
+  el("cDose").value = PREFS.cDose; el("cTime").value = PREFS.cTime;
+  el("cBed").value = PREFS.cBed; el("cHalf").value = PREFS.cHalf;
+  CUR = isoDay(new Date());                 /* cold start is always today */
+  loadDay(); calcCaff();
+
+  registerChart(el("chWake"), (svg, w) => drawWakeDots(svg, w, WAKE_DAYS, DB, targetFor));
+  registerChart(el("chTriage"), (svg, w) => drawTriage(svg, w, TRIAGE_ROWS));
+  registerChart(el("chHeat"), (svg, w) => drawBehaviourHeat(svg, w, HEAT_DAYS, DB, KEYS, NAMES, CORE3));
+
+  window.addEventListener("hashchange", applyRoute);
+  applyRoute();
+
+  const gid = lsGet(LS_GIST, ""); if (gid) el("ghGist").value = gid;
+  if (lsGet(LS_TOK, "")) { setPill("syncPill", "token saved on this device", "ok"); syncNow(true); }
+  const n = Object.keys(DB).length;
+  const sp = el("savePill");
+  if (n === 0) sp.textContent = "saves automatically";
+  else { sp.textContent = n + " days logged"; sp.className = "pill ok"; }
 }
 
-(function(){
-  const th=lsGet(LS_THEME,""); if(th)document.documentElement.setAttribute("data-theme",th);
-  if(typeof GATE_HASH==="undefined" || !GATE_HASH){ reveal(); return; }
-  if(lsGet(LS_UNLOCK,"")===GATE_HASH){ reveal(); return; }
-  document.getElementById("gPass").focus();
+(function () {
+  const th = lsGet(LS_THEME, ""); if (th) document.documentElement.setAttribute("data-theme", th);
+  if (typeof GATE_HASH === "undefined" || !GATE_HASH) { reveal(); return; }
+  if (lsGet(LS_UNLOCK, "") === GATE_HASH) { reveal(); return; }
+  el("gPass").focus();
 })();
