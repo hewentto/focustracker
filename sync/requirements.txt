@@ -1,0 +1,5 @@
+# python-garminconnect rebuilt its auth natively after garth was deprecated
+# on 2026-03-28. It is the only maintained library in this space -- treat it
+# as a single point of failure and expect Garmin to break it periodically.
+garminconnect>=0.3.8
+requests>=2.32
