@@ -23,7 +23,7 @@ Env:
 
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
@@ -39,14 +39,37 @@ CSV_HEADER = [
     "social_contact", "protein_target", "note",
 ]
 
-# Garmin activityType.typeKey -> our session type.
+# Garmin activityType.typeKey -> our session type. This is a STRICT whitelist:
+# anything not listed (walking, cycling, yoga) is not a session and must not
+# tick "Trained", which is a Core Three item.
 TRAIN_MAP = {
     "running": "run", "trail_running": "run", "treadmill_running": "run",
     "track_running": "run", "virtual_run": "run", "indoor_running": "run",
     "strength_training": "lift", "indoor_cardio": "lift",
     "stair_climbing": "snack",
 }
+# When a day holds more than one session, highest priority wins -- so the
+# result doesn't depend on the order Garmin happens to return them in.
+TRAIN_PRIORITY = {"lift": 3, "run": 2, "snack": 1}
 MIN_ACTIVITY_SECONDS = 8 * 60
+
+
+class RateLimited(Exception):
+    """Garmin answered 429. Stop at once and leave the gist alone."""
+
+
+def is_rate_limited(exc):
+    """Blocks are account-level, last 48-72h, and extend if you keep asking.
+
+    Matched by class name rather than importing garminconnect, so this module
+    still imports (and its CSV half stays testable) without the library.
+    """
+    if type(exc).__name__ == "GarminConnectTooManyRequestsError":
+        return True
+    if getattr(getattr(exc, "response", None), "status_code", None) == 429:
+        return True
+    text = str(exc).lower()
+    return "429" in text or "too many requests" in text
 
 
 def log(msg):
@@ -63,11 +86,31 @@ def blank_day():
 
 
 def hhmm(ts):
-    """Garmin local timestamps look like '2026-07-31T06:41:00.0'."""
-    if not ts:
+    """Garmin's dailySleepDTO returns epoch MILLISECONDS, not ISO strings.
+
+    The "...Local" variants are pre-shifted by the local UTC offset, so reading
+    them as UTC gives local wall-clock time -- converting with the runner's own
+    timezone would shift them a second time. Using Local rather than GMT also
+    means a trip abroad records the wall-clock time you actually woke at.
+
+    ISO strings are still accepted because other endpoints (HRV) use them, and
+    because getting this wrong is silent: feeding "1761100200000" to
+    fromisoformat parses it as the year 1761 and yields a plausible "00:00".
+    """
+    if ts is None or ts == "" or isinstance(ts, bool):
         return ""
+    if isinstance(ts, (int, float)):
+        try:
+            return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%H:%M")
+        except (OverflowError, OSError, ValueError):
+            return ""
+    text = str(ts).strip()
+    # Epoch millis that arrived as a string. The length guard keeps a bare
+    # YYYYMMDD date from being mistaken for one.
+    if text.isdigit():
+        return hhmm(int(text)) if len(text) >= 10 else ""
     try:
-        return datetime.fromisoformat(str(ts).split(".")[0]).strftime("%H:%M")
+        return datetime.fromisoformat(text.split(".")[0]).strftime("%H:%M")
     except ValueError:
         return ""
 
@@ -148,7 +191,9 @@ def fetch_garmin(days_back):
 
     tokenstore = os.environ.get(
         "GARMINTOKENS", os.path.expanduser("~/.garminconnect"))
-    client = Garmin()
+    # The library defaults to 3 internal retries. Against an account-level
+    # block that works against us, so keep it to one attempt.
+    client = Garmin(retry_attempts=1)
     client.login(tokenstore)
     log("garmin: authenticated from stored token")
 
@@ -167,6 +212,8 @@ def fetch_garmin(days_back):
             if bed:
                 entry["bedT"] = bed
         except Exception as exc:  # noqa: BLE001
+            if is_rate_limited(exc):
+                raise RateLimited(str(exc)) from exc
             log("garmin: no sleep for " + iso + " (" + str(exc) + ")")
 
         try:
@@ -176,14 +223,17 @@ def fetch_garmin(days_back):
                 if (a.get("duration") or 0) < MIN_ACTIVITY_SECONDS:
                     continue
                 key = ((a.get("activityType") or {}).get("typeKey") or "").lower()
-                mapped = TRAIN_MAP.get(key, "other")
-                # Prefer a real session over a walk if the day has both.
-                if best in ("", "other") or mapped in ("lift", "run"):
+                mapped = TRAIN_MAP.get(key)
+                if mapped is None:
+                    continue  # a walk is not a session
+                if not best or TRAIN_PRIORITY[mapped] > TRAIN_PRIORITY[best]:
                     best = mapped
             if best:
                 entry["trainType"] = best
                 entry["train"] = True
         except Exception as exc:  # noqa: BLE001
+            if is_rate_limited(exc):
+                raise RateLimited(str(exc)) from exc
             log("garmin: no activities for " + iso + " (" + str(exc) + ")")
 
         if entry:
@@ -199,12 +249,27 @@ def main():
         log("error: GIST_ID and GIST_TOKEN are required")
         return 2
 
-    target = minutes(os.environ.get("TARGET_WAKE", "06:30")) or 390
-    days_back = int(os.environ.get("DAYS_BACK", "3"))
+    # `or 390` would swallow a legitimate midnight target, since minutes()
+    # returns 0 for "00:00".
+    target = minutes(os.environ.get("TARGET_WAKE", "06:30"))
+    if target is None:
+        log("warning: TARGET_WAKE is not HH:MM -- falling back to 06:30")
+        target = 390
+    try:
+        days_back = max(1, min(14, int(os.environ.get("DAYS_BACK", "3"))))
+    except ValueError:
+        log("warning: DAYS_BACK is not a number -- falling back to 3")
+        days_back = 3
 
     # Garmin first. If this throws we exit before touching the gist.
     try:
         garmin = fetch_garmin(days_back)
+    except RateLimited as exc:
+        log("error: Garmin answered 429 -- stopped at the first refusal.")
+        log("The block is ACCOUNT-level, lasts 48-72h, and EXTENDS if you "
+            "retry. Do not re-run this workflow today.")
+        log("The gist was not modified. " + str(exc))
+        return 1
     except Exception as exc:  # noqa: BLE001
         log("error: garmin fetch failed -- gist NOT modified. " + str(exc))
         log("If this is an auth error, re-run sync/auth_setup.py locally and "

@@ -23,14 +23,23 @@ MFA. The workflow only ever restores a token. This matters because a fresh SSO
 login from a datacenter IP is exactly what trips Garmin's Cloudflare bot
 detection.
 
-**It polls once a day.** Reported rate-limit blocks are **account-level, not
-IP-level**, last 48–72 hours, arrive with no warning email, and *extend if you
-retry*. Sleep finalises each morning, so daily costs nothing.
+**It polls once a day, and stops dead on a 429.** Reported rate-limit blocks are
+**account-level, not IP-level**, last 48–72 hours, arrive with no warning email,
+and *extend if you retry*. So the script aborts on the first refusal rather than
+working through the remaining days, and the library's own retry count is turned
+down to 1. Sleep finalises each morning, so daily polling costs nothing.
 
 **Garmin only writes objective fields.** `wakeT`, `bedT`, `trainType`, `train`,
 and the wake-within-±30min checkbox. It never touches morning light, caffeine,
 blocks, logged, social, protein or your note — the merge is field-level,
 not record-level, so your manual entries survive.
+
+**"Trained" is a strict whitelist.** Only runs, strength training and stair
+climbing count. A walk, a bike ride or a yoga session is ignored entirely rather
+than being recorded as a generic session — ticking a Core Three item off the
+back of an eight-minute walk would make the number meaningless. If a day holds
+more than one session, **lift wins, then run, then stairs**, so the result
+doesn't depend on the order Garmin returns them in.
 
 ---
 
@@ -95,8 +104,14 @@ with one maintainer talking to undocumented endpoints.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Auth error | OAuth1 token expired (~1 year) | Re-run `auth_setup.py`, update `GARMIN_TOKENS` |
-| HTTP 429 | Account-level rate limit | **Wait 48–72h. Do not retry** — retrying extends it |
+| HTTP 429 | Account-level rate limit | The run aborts itself. **Wait 48–72h. Do not re-run** — retrying extends it |
 | Sudden total failure | Garmin changed endpoints | Check for a `python-garminconnect` release, bump `requirements.txt` |
+
+`requirements.txt` pins `garminconnect>=0.3.8,<0.4` on purpose. Patch releases
+are usually the fix for "Garmin changed something overnight" and you want those
+automatically; a minor bump has already removed a piece of the auth surface once
+(`client.garth` vanished when the library dropped `garth`), so that should be a
+decision rather than a surprise at 08:20.
 
 ---
 

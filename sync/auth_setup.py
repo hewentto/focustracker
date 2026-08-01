@@ -44,13 +44,14 @@ def main() -> int:
         return input("MFA code: ").strip()
 
     print("\nLogging in...")
+    TOKENSTORE.mkdir(parents=True, exist_ok=True)
     try:
         client = Garmin(email=email, password=password, prompt_mfa=prompt_mfa)
-        client.login()
-    except TypeError:
-        # Older constructor signature.
-        client = Garmin(email, password)
-        client.login()
+        # Handing login() the tokenstore is what persists the session -- it
+        # writes garmin_tokens.json itself, mode 0600. There is no
+        # client.garth.dump() any more: garth stopped being a dependency when
+        # the library rebuilt auth natively in 2026.
+        client.login(str(TOKENSTORE))
     except Exception as exc:  # noqa: BLE001
         print(f"Login failed: {exc}", file=sys.stderr)
         print(
@@ -60,9 +61,13 @@ def main() -> int:
         )
         return 1
 
-    TOKENSTORE.mkdir(parents=True, exist_ok=True)
-    client.garth.dump(str(TOKENSTORE))
-    print(f"Tokens written to {TOKENSTORE}")
+    written = sorted(p for p in TOKENSTORE.iterdir() if p.is_file())
+    if not written:
+        print(f"Login reported success but nothing landed in {TOKENSTORE}. "
+              "Check the library version.", file=sys.stderr)
+        return 1
+    print(f"Tokens written to {TOKENSTORE}: "
+          + ", ".join(p.name for p in written))
 
     # Pack the whole token directory so this keeps working if the library
     # changes how many files it writes.

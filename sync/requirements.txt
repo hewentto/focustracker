@@ -1,5 +1,10 @@
 # python-garminconnect rebuilt its auth natively after garth was deprecated
 # on 2026-03-28. It is the only maintained library in this space -- treat it
 # as a single point of failure and expect Garmin to break it periodically.
-garminconnect>=0.3.8
-requests>=2.32
+#
+# Capped below 0.4 deliberately. Patch releases are usually the fix for
+# "Garmin changed something overnight", so we want those automatically; a
+# minor bump has already broken the auth surface once (client.garth vanished)
+# and should be a decision, not a surprise at 08:20.
+garminconnect>=0.3.8,<0.4
+requests>=2.33
