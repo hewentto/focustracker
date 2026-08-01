@@ -128,7 +128,13 @@ A GitHub Action pulls sleep and activities once a day. Setup and the failure mod
 
 Two rules if you add a day field: it must be touched in all eleven places (JS `blank()`, `FIELDS`, `isEmpty()`, `save()`, `loadDay()`, `toCSV()` header *and* row, the HTML control, plus Python `blank_day()`, `CSV_HEADER`, `to_csv()`, and the inline day literal inside `apply_to_body()` in [`sync/fitnotes_sync.py`](sync/fitnotes_sync.py)), and **CSV columns are append-only** — inserting one misaligns every CSV already downloaded. The eleventh is the one that gets missed: it is a hand-typed copy of the whole day record rather than a call to `blank_day()`, so a grep for `blank_day` never surfaces it.
 
-The CSV is 19 columns today, and the two headers — `toCSV()` in the app, `CSV_HEADER` in `garmin_sync.py` — must stay byte-identical. **Slot 20 is reserved for `not_applicable`**, a space-joined list of behaviour keys. Nothing writes it yet and nothing else may claim it. Space-joined rather than comma-joined because a comma forces quoting, and quoting is implemented twice — `csvEsc` in JS, `csv_escape` in Python — so the two would have to agree byte for byte on a file both sides write.
+The CSV is 20 columns, and the two headers — `toCSV()` in the app, `CSV_HEADER` in `garmin_sync.py` — must stay byte-identical. **Slot 20 is `not_applicable`**, a space-joined list of behaviour keys you marked as not applying that day. Space-joined rather than comma-joined because a comma forces quoting, and quoting is implemented twice — `csvEsc` in JS, `csv_escape` in Python — so the two would have to agree byte for byte on a file both sides write.
+
+### One number the archive and the screen report differently
+
+On a day you mark training not applicable, the Core Three latch reads **2 of 2** and the day counts. The CSV's `core3_all` reads **0** for that day, because it means *all three literally ticked* and always has — every CSV you have already downloaded was built on that meaning, and changing it now would silently redefine a column across your whole history.
+
+So the two disagree, on purpose. The screen answers *did you do everything it was fair to ask?*; the archive answers *what actually happened?* `not_applicable` is the column that reconciles them: a row with `trained=0`, `core3_all=0` and `not_applicable=train` is a rest day, and a row with the first two and an empty slot 20 is a missed session. Nothing else in the file can tell you which is which.
 
 ---
 

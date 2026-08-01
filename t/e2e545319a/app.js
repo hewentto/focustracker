@@ -853,7 +853,20 @@ function render() {
 function renderToday() {
   const todayIso = isoDay(new Date());
   const r = DB[CUR];
-  const hit = CORE3.filter(k => r && r[k]).length;
+  /* The denominator is the OPPORTUNITIES this day had, never the constant
+     3. A day whose `train` is marked not-applicable carries two
+     requirements, so the latch must read 2 of 2. The two alternatives are
+     both lies with a direction: counting the mark as satisfied inflates a
+     rest day to 3 of 3, and leaving it in the denominator prints 2 of 3 and
+     calls a programmed rest day a shortfall -- which is the exact failure
+     Phase 6 exists to retire, left standing on the one screen that is read
+     every morning. `opps` is also what the bars and every sentence below
+     are built from; deriving them separately is how they drift apart.
+     isSkip() already requires the boolean to be false, so a skipped key can
+     never be a hit and `hit` is unchanged on every day with no mark. */
+  const opps = CORE3.filter(k => !isSkip(r, k));
+  const na = CORE3.filter(k => isSkip(r, k));
+  const hit = opps.filter(k => r && r[k]).length;
 
   /* Date nav. You cannot walk into the future: ticking a day that has
      not happened is the one way to put a lie in the record, and the
@@ -877,34 +890,75 @@ function renderToday() {
      only place the record is written: one state, one write target.
      Bars are reused rather than rebuilt so the fill actually animates
      when one closes. */
-  setText("heroNum", hit + "/3");
+  const n = opps.length;
+  setText("heroNum", n ? hit + "/" + n : "—");
   const segs = el("coreMeter");
   if (segs) {
-    if (segs.children.length !== CORE3.length) {
-      segs.innerHTML = "";
-      CORE3.forEach(() => segs.appendChild(document.createElement("div")));
+    /* The guard is on the OPPORTUNITY count, not CORE3.length. Its whole
+       job is to keep the existing <div>s so the CSS fill has a node to
+       transition on -- rebuild every render and the bar snaps instead of
+       filling. Marking a day not-applicable is now the one other thing
+       that legally changes the count, and that is precisely when a
+       rebuild is correct, so the guard has to move with it. */
+    if (segs.children.length !== n) {
+      segs.textContent = "";
+      opps.forEach(() => segs.appendChild(document.createElement("div")));
     }
-    CORE3.forEach((k, i) => {
+    opps.forEach((k, i) => {
       segs.children[i].className = "bar" + (r && r[k] ? " on" : "");
     });
-    segs.setAttribute("aria-label",
-      "Core Three: " + hit + " of 3 closed — " +
-      CORE3.map(k => NAMES[k] + " " + (r && r[k] ? "done" : "open")).join(", "));
+    /* The skipped item is NAMED here, never silently dropped. Two bars
+       described by a label that mentions two behaviours leaves a screen
+       reader user to work out on their own whether the third was lost,
+       failed, or never asked for -- the sighted reader has the Trained
+       row's "Not applicable — undo" below to answer that, and this is
+       the only place the same answer reaches the label. */
+    segs.setAttribute("aria-label", n
+      ? "Core Three: " + hit + " of " + n + " closed — " +
+        opps.map(k => NAMES[k] + " " + (r && r[k] ? "done" : "open"))
+            .concat(na.map(k => NAMES[k] + " not applicable")).join(", ")
+      : "Core Three: none applicable — " +
+        CORE3.map(k => NAMES[k] + " not applicable").join(", "));
   }
 
-  const left = CORE3.filter(k => !(r && r[k])).map(k => NAMES[k].toLowerCase());
-  const others = ["caff", "block", "log"].filter(k => !(r && r[k])).length;
+  /* Both halves of the sentence lose skips too. `left` taken off CORE3
+     would list a rest day's Trained as still to go, and `others` taken off
+     a bare untick would count a not-applicable row as open: either one
+     hands back the miss the mark was made to retire, in prose, directly
+     under a meter that has just stopped claiming it. */
+  const left = opps.filter(k => !(r && r[k])).map(k => NAMES[k].toLowerCase());
+  const otherOpps = ["caff", "block", "log"].filter(k => !isSkip(r, k));
+  const others = otherOpps.filter(k => !(r && r[k])).length;
+  /* Spelled out because these are sentences, not readouts. Indexed by a
+     count, so an ordinary day only ever reads WORD[3] and WORD[6] and the
+     strings below stay byte-identical to what they were before skips. */
+  const WORD = ["no", "one", "two", "three", "four", "five", "six"];
   const state = el("latchState");
-  if (state) state.classList.toggle("counts", hit === 3);
-  if (hit === 3) {
+  /* n === 0 must never latch. A tick glyph over a day that asked nothing
+     reads as an achievement, and 0 of 0 is not one. */
+  if (state) state.classList.toggle("counts", n > 0 && hit === n);
+  if (!n) {
+    setText("heroSub", "Nothing applicable.");
+    setText("heroRest", "All three marked not applicable.");
+  } else if (hit === n) {
     setText("heroSub", "Day counts.");
-    setText("heroRest", others ? others + " of the other three still open." : "All six in.");
+    /* "All six in." only when six were actually asked. Five ticks and a
+       rest-day mark is not six, and the old constant would have printed
+       that claim on the one line that asserts a complete day -- the
+       single loudest place to inflate. */
+    setText("heroRest", others
+      ? others + " of the other " + WORD[otherOpps.length] + " still open."
+      : "All " + WORD[n + otherOpps.length] + " in.");
   } else {
     const list = left.length === 1 ? left[0]
       : left.slice(0, -1).join(", ") + " and " + left[left.length - 1];
     setText("heroSub", list[0].toUpperCase() + list.slice(1) + " to go.");
-    setText("heroRest", hit ? hit + " of the Core Three done."
-                            : "The three that make a bad day count.");
+    /* hit < n here, so n === 1 can only arrive with hit === 0: the
+       "N of the one done." phrasing is unreachable and only the singular
+       verb below needs guarding. */
+    setText("heroRest", hit
+      ? hit + " of the " + (n === 3 ? "Core Three" : WORD[n]) + " done."
+      : "The " + WORD[n] + " that make" + (n === 1 ? "s" : "") + " a bad day count.");
   }
 
   /* The measurement sits ON the row it evidences. Before this, the
@@ -996,7 +1050,15 @@ function renderToday() {
     });
     if (x.social) social++;
     if (x.protein) protein++;
-    if (d <= todayIso && CORE3.every(k => x[k])) core3days++;
+    /* Same rule as the latch: a day counts when every Core Three item that
+       was an OPPORTUNITY was taken. Without this the week meter scored 0
+       on a rest day the latch had just called complete -- two numbers on
+       one screen, both labelled "Core Three", disagreeing about one day.
+       The .some() guard stops an all-skipped day scoring on nothing done.
+       The denominator stays 7: that is calendar days, and a week does not
+       have fewer days because one of them was a rest day. */
+    if (d <= todayIso && CORE3.some(k => x[k]) &&
+        CORE3.every(k => x[k] || isSkip(x, k))) core3days++;
   });
   meter("mLift", "Lifts", lifts, T_LIFT);
   meter("mRun", "Runs", runs, T_RUN);
