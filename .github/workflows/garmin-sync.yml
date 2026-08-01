@@ -5,7 +5,7 @@ name: Garmin sync
 # each morning, so daily polling loses nothing.
 on:
   schedule:
-    - cron: "20 14 * * *"   # 14:20 UTC = 08:20 Denver (MDT) / 07:20 (MST)
+    - cron: "20 14 * * *"   # 14:20 UTC = 08:20 Mountain (MDT) / 07:20 (MST)
   workflow_dispatch:         # manual run button
 
 # Least privilege: this workflow writes to a Gist via a PAT, never to the repo.
