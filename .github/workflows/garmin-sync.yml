@@ -1,0 +1,66 @@
+name: Garmin sync
+
+# Once a day, deliberately. Garmin rate limits at the ACCOUNT level and
+# reported blocks last 48-72h, extending if you retry. Sleep data finalises
+# each morning, so daily polling loses nothing.
+on:
+  schedule:
+    - cron: "20 14 * * *"   # 14:20 UTC = 08:20 Denver (MDT) / 07:20 (MST)
+  workflow_dispatch:         # manual run button
+
+# Least privilege: this workflow writes to a Gist via a PAT, never to the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: garmin-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # python-garminconnect >= 0.3.0 requires 3.12+
+          cache: pip
+          cache-dependency-path: sync/requirements.txt
+
+      - name: Install deps
+        run: pip install -r sync/requirements.txt
+
+      - name: Restore Garmin token
+        env:
+          GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
+        run: |
+          if [ -z "$GARMIN_TOKENS" ]; then
+            echo "::error::GARMIN_TOKENS secret is empty. Run sync/auth_setup.py locally."
+            exit 1
+          fi
+          mkdir -p ~/.garminconnect
+          # Never echo the token; base64 output is not redacted by Actions.
+          printf '%s' "$GARMIN_TOKENS" | base64 --decode | tar -xz -C ~/.garminconnect
+          chmod 700 ~/.garminconnect
+          chmod 600 ~/.garminconnect/* || true
+
+      - name: Sync Garmin to Gist
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          TARGET_WAKE: ${{ vars.TARGET_WAKE || '06:30' }}
+          DAYS_BACK: ${{ vars.DAYS_BACK || '3' }}
+        run: python sync/garmin_sync.py
+
+      # If the step above failed, the gist was not touched and the tracker
+      # still works by hand. This is a broken enhancement, not a broken app.
+      - name: Explain failure
+        if: failure()
+        run: |
+          echo "::warning::Garmin sync failed. Your tracker is unaffected -- keep logging manually."
+          echo "Most likely causes, in order:"
+          echo "  1. Token expired (~1 year) -> re-run sync/auth_setup.py locally, update GARMIN_TOKENS"
+          echo "  2. Garmin changed their endpoints -> check for a python-garminconnect release"
+          echo "  3. HTTP 429 -> account-level rate limit. Do NOT retry; retrying extends the block."
