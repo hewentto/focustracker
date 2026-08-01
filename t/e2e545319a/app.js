@@ -3,6 +3,7 @@
 /* GATE_HASH and GATE_SALT come from gate.js. */
 const LS_UNLOCK="ft.unlocked.v1";
 const LS_DATA="ft.data.v1", LS_PREF="ft.prefs.v1", LS_TOK="ft.tok.v1", LS_GIST="ft.gist.v1", LS_THEME="ft.theme.v1";
+const LS_DIRTY="ft.dirty.v1";
 const GIST_FILE="focus-tracker-data.json";
 const CSV_FILE="focus-log.csv";
 
@@ -10,6 +11,8 @@ const CSV_FILE="focus-log.csv";
 const KEYS=["wake","light","train","caff","block","log"];
 const CORE3=["wake","light","train"];
 const NAMES={wake:"Wake ±30m",light:"Morning light",train:"Trained",caff:"Caffeine plan",block:"Both blocks",log:"Logged"};
+/* Every user-editable field. Drives dirty-tracking and the emptiness test. */
+const FIELDS=KEYS.concat(["wakeT","bedT","focus","trainType","drinks","social","protein","note"]);
 
 /* Weekly targets */
 const T_LIFT=3, T_RUN=2, T_DRY=4, T_DRINKS=6, T_SOCIAL=2;
@@ -51,8 +54,23 @@ function mins(t){if(!t)return null;const p=t.split(":");return (+p[0])*60+(+p[1]
 function pretty(m){m=((m%1440)+1440)%1440;let h=Math.floor(m/60),x=m%60,ap=h<12?"am":"pm",hh=h%12===0?12:h%12;return hh+":"+String(x).padStart(2,"0")+ap;}
 function blank(){return {wake:false,light:false,train:false,caff:false,block:false,log:false,
   wakeT:"",bedT:"",focus:"",trainType:"",drinks:"",social:false,protein:false,note:"",_u:0};}
-function rec(){if(!DB[CUR])DB[CUR]=blank();return DB[CUR];}
+/* Reading a day must never create it — browsing with Prev/Next used to leave
+   an all-false record behind, which then reached the CSV, the gist and the
+   adherence maths. Only save() may bring a day into existence. */
+function rec(){return DB[CUR]||blank();}
+function recW(){if(!DB[CUR])DB[CUR]=blank();return DB[CUR];}
 function sleepMins(r){ if(!r||!r.wakeT||!r.bedT)return null; let x=mins(r.wakeT)-mins(r.bedT); if(x<0)x+=1440; return x; }
+
+function hasVal(v){ return v!==null && v!==undefined && v!==""; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* A day carrying no information at all — not a logged rest day, an artefact. */
+function isEmpty(r){
+  if(!r)return true;
+  if(KEYS.some(k=>r[k])||r.social||r.protein)return false;
+  return !["wakeT","bedT","focus","trainType","drinks","note"].some(f=>hasVal(r[f]));
+}
+function prune(db){ Object.keys(db).forEach(d=>{ if(isEmpty(db[d]))delete db[d]; }); return db; }
 
 function lsGet(k,f){try{const v=localStorage.getItem(k);return v===null?f:v;}catch(e){return f;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
@@ -64,7 +82,32 @@ function persist(){
   p.textContent="saved "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
   p.className="pill ok";
 }
-function loadLocal(){ try{ DB=JSON.parse(lsGet(LS_DATA,"{}"))||{}; }catch(e){ DB={}; } }
+function loadLocal(){ try{ DB=prune(JSON.parse(lsGet(LS_DATA,"{}"))||{}); }catch(e){ DB={}; } }
+
+/* ---------- unsynced-edit tracking ----------
+   One _u per day can't express "Garmin set wakeT while I ticked light", so the
+   newer whole record used to win and swallow the other side's edits. Remember
+   which fields this device changed since its last successful push and re-apply
+   them after every merge; drop them once they're upstream. */
+function loadDirty(){ try{ return JSON.parse(lsGet(LS_DIRTY,"{}"))||{}; }catch(e){ return {}; } }
+function saveDirty(d){ lsSet(LS_DIRTY, JSON.stringify(d)); }
+function markDirty(day,before,after){
+  const d=loadDirty(), set={}, base=before||blank();
+  (d[day]||[]).forEach(f=>set[f]=1);
+  FIELDS.forEach(f=>{ if(base[f]!==after[f])set[f]=1; });
+  const list=Object.keys(set);
+  if(list.length){ d[day]=list; saveDirty(d); }
+}
+function dropDirty(sent){
+  const d=loadDirty();
+  Object.keys(sent).forEach(day=>{
+    if(!d[day])return;
+    const gone={}; sent[day].forEach(f=>gone[f]=1);
+    const left=d[day].filter(f=>!gone[f]);
+    if(left.length)d[day]=left; else delete d[day];
+  });
+  saveDirty(d);
+}
 function savePrefs(){
   lsSet(LS_PREF, JSON.stringify({
     dose:document.getElementById("cDose").value, time:document.getElementById("cTime").value,
@@ -92,7 +135,8 @@ function shiftDay(n){const d=dayFromIso(CUR);d.setDate(d.getDate()+n);CUR=isoDay
 function goToday(){CUR=isoDay(new Date());loadDay();render();}
 
 function save(){
-  const t=rec();
+  const before=DB[CUR]?Object.assign({},DB[CUR]):null;
+  const day=CUR, t=recW();
   document.querySelectorAll('.item input[type=checkbox]').forEach(cb=>{t[cb.dataset.k]=cb.checked;});
   t.wakeT=document.getElementById("fWake").value;
   t.bedT=document.getElementById("fBed").value;
@@ -103,6 +147,8 @@ function save(){
   t.protein=document.getElementById("fProtein").checked;
   t.note=document.getElementById("fNote").value;
   t._u=Date.now();
+  markDirty(day,before,t);
+  if(isEmpty(t))delete DB[day];
   persist(); render(); queueSync();
 }
 function loadDay(){
@@ -187,7 +233,7 @@ function render(){
   days.forEach(d=>{
     const r=DB[d]; const sm=sleepMins(r);
     let inner = sm===null ? '<span style="color:var(--text-muted)">—</span>'
-      : '<span style="font-size:11.5px;color:var(--text-secondary)">'+(sm/60).toFixed(1)+"h<br>↑"+r.wakeT+"</span>";
+      : '<span style="font-size:11.5px;color:var(--text-secondary)">'+(sm/60).toFixed(1)+"h<br>↑"+esc(r.wakeT)+"</span>";
     html+='<td'+(d===CUR?' class="today"':'')+">"+inner+"</td>";
   });
   html+="</tr>";
@@ -199,8 +245,9 @@ function render(){
     const r=DB[d]; if(!r)return;
     if(r.trainType==="lift")lifts++;
     if(r.trainType==="run")runs++;
-    const dk=+r.drinks||0; drinks+=dk;
-    if(r.drinks!=="" && dk===0)dry++;
+    /* A day you never answered isn't a dry night. Only a recorded 0 counts. */
+    const dk=hasVal(r.drinks)?Number(r.drinks):null;
+    if(dk!==null && !isNaN(dk)){ drinks+=dk; if(dk===0)dry++; }
     if(r.social)social++;
     if(d<=todayIso){ logged++; if(CORE3.every(k=>r[k]))core3++; }
   });
@@ -266,12 +313,21 @@ function downloadCSV(){
 }
 
 /* ---------- merge + gist sync ---------- */
-function merge(a,b){
+/* Newest edit still wins the day, but field by field rather than wholesale —
+   and anything this device changed and hasn't pushed yet survives regardless,
+   so the 08:20 Garmin job can no longer swallow an unsynced tick or note. */
+function merge(local,remote,dirty){
+  dirty=dirty||{};
   const out={};
-  Object.keys(a).forEach(k=>out[k]=a[k]);
-  Object.keys(b).forEach(k=>{
-    if(!out[k]) out[k]=b[k];
-    else out[k] = ((b[k]._u||0) > (out[k]._u||0)) ? b[k] : out[k];
+  Object.keys(local).forEach(k=>out[k]=local[k]);
+  Object.keys(remote).forEach(day=>{
+    const mine=out[day], theirs=remote[day];
+    if(!mine){ out[day]=theirs; return; }
+    const theirsNewer=(theirs._u||0)>(mine._u||0);
+    const merged=Object.assign({}, theirsNewer?mine:theirs, theirsNewer?theirs:mine);
+    (dirty[day]||[]).forEach(f=>{ if(f in mine)merged[f]=mine[f]; });
+    merged._u=Math.max(mine._u||0, theirs._u||0);
+    out[day]=merged;
   });
   return out;
 }
@@ -311,13 +367,18 @@ async function syncNow(quiet){
       const f=g.files&&g.files[GIST_FILE];
       if(f&&f.content){
         let remote={}; try{ remote=JSON.parse(f.content).data||{}; }catch(e){}
-        DB=merge(DB,remote); persist(); loadDay(); render();
+        DB=prune(merge(DB,remote,loadDirty())); persist(); loadDay(); render();
       }
+      /* Snapshot first: edits made while the PATCH is in flight stay dirty. */
+      const sent=loadDirty();
       await gh("/gists/"+gid,{method:"PATCH",body:JSON.stringify({files:gistPayload()})},tok);
+      dropDirty(sent);
     }else{
+      const sent=loadDirty();
       const g=await gh("/gists",{method:"POST",body:JSON.stringify({
         description:"Building the Best Jared — private log", public:false, files:gistPayload()
       })},tok);
+      dropDirty(sent);
       gid=g.id; lsSet(LS_GIST,gid); document.getElementById("ghGist").value=gid;
       msg("Created secret gist "+gid+" — copy that ID onto your other device.");
     }
@@ -351,7 +412,7 @@ function importData(){
   if(!raw){msg("Paste exported text into the box first.");return;}
   try{
     const o=JSON.parse(raw); if(!o.data)throw 0;
-    DB=merge(DB,o.data); persist(); loadDay(); render();
+    DB=prune(merge(DB,o.data)); persist(); loadDay(); render();
     msg("Merged "+Object.keys(o.data).length+" day(s).");
   }catch(e){ msg("That doesn't look like exported data."); }
 }
