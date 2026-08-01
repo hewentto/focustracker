@@ -867,7 +867,12 @@
 
   <div id="rvTable" style="display:none">
     <div class="card">
-      <h2>Every logged day</h2>
+      <h2>Every stored day</h2>
+      <!-- Deliberately wider than the coverage count above: the twin's job is
+           that every value in a chart is reachable without hovering, and the
+           wake dots include days only a sync touched. Saying "logged" here
+           would make one word mean two different numbers on one tab. -->
+      <p class="note">Includes days only a sync touched, which is why this can run longer than the days-in-the-record count on the charts.</p>
       <div class="scrollx"><table>
         <thead><tr><th>Day</th><th>Wake</th><th>Light</th><th>Train</th><th>Caff</th><th>Block</th><th>Log</th>
           <th>Woke</th><th>Bed</th><th>Sleep</th><th>Session</th><th>2nd</th><th>Run</th><th>Social</th><th>Protein</th><th>Note</th></tr></thead>
@@ -1013,10 +1018,10 @@
 <!-- ?v= is the cache buster. There is no build step, so bump it in the same
      commit as any change to these files or browsers will keep serving the
      old copy for as long as their heuristic freshness lasts. -->
-<script src="gate.js?v=4"></script>
-<script src="programme.js?v=4"></script>
-<script src="fitnotes.js?v=4"></script>
-<script src="charts.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="gate.js?v=5"></script>
+<script src="programme.js?v=5"></script>
+<script src="fitnotes.js?v=5"></script>
+<script src="charts.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

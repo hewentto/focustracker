@@ -127,6 +127,24 @@ function isEmpty(r) {
 }
 function prune(db) { Object.keys(db).forEach(d => { if (isEmpty(db[d])) delete db[d]; }); return db; }
 
+/* A record existing is not evidence a human was there. Three writers make
+   day records with nobody in the room: garmin_sync.py, fitnotes_sync.py,
+   and the browser FitNotes import above (`if (!DB[iso]) DB[iso] = blank()`).
+   Between them the machines own wake, train, wakeT, bedT, trainType, train2
+   and runKm -- so none of those can attest to anything. What is left below
+   is what only a person can put there.
+   Without this, machine-made days both inflate coverage and sit in the
+   denominator for light, caff, block and log, which no machine can write:
+   the triage table would then judge you on days you never saw, deflating
+   exactly the four items it exists to judge.
+   `skipped` is listed although the field does not exist yet -- marking a day
+   not-applicable is a human act, and hasVal() on an absent key is false, so
+   naming it here costs nothing until Phase 6 ships the control. */
+function attested(r) {
+  return !!r && (["light", "caff", "block", "log"].some(k => r[k]) || r.social || r.protein ||
+                 ["note", "liftTpl", "focus", "skipped"].some(f => hasVal(r[f])));
+}
+
 function lsGet(k, f) { try { const v = localStorage.getItem(k); return v === null ? f : v; } catch (e) { return f; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
@@ -644,18 +662,14 @@ function renderToday() {
                   : sess.length ? sess.join(" + ") : "");
 
   /* Missed twice: never on a day still in progress. Flagging "Trained"
-     at 9am on a day you have not finished is manufacturing a failure. */
-  const flags = [];
-  KEYS.forEach(k => {
-    if (isParked(k)) return;
-    const y = addDays(CUR, -1), y2 = addDays(CUR, -2);
-    if (CUR >= todayIso) return;
-    const a = DB[y], b = DB[y2];
-    if (a && b && !a[k] && !b[k]) flags.push(NAMES[k]);
-  });
+     at 9am on a day you have not finished is manufacturing a failure.
+     Both days must also be attested. A Garmin-only record is a day nobody
+     answered, and "you missed it twice" is a claim about answers -- on a
+     synced-but-unanswered day every box reads false because no one was
+     asked, not because anything was missed. */
   const yest = addDays(todayIso, -1), yest2 = addDays(todayIso, -2);
   const liveFlags = KEYS.filter(k => !isParked(k) &&
-    DB[yest] && DB[yest2] && !DB[yest][k] && !DB[yest2][k]).map(k => NAMES[k]);
+    attested(DB[yest]) && attested(DB[yest2]) && !DB[yest][k] && !DB[yest2][k]).map(k => NAMES[k]);
   const fb = el("missedTwice");
   if (fb) {
     if (liveFlags.length) {
@@ -1004,9 +1018,17 @@ function horizonLine() {
 function renderReview() {
   const days = filteredDays(), todayIso = isoDay(new Date());
   const past = days.filter(d => d <= todayIso);
-  const logged = past.filter(d => DB[d]);
-  setText("rvCoverage", logged.length + " of " + past.length + " days logged (" +
-    (past.length ? Math.round(logged.length / past.length * 100) : 0) + "%)");
+  /* Every percentage on this view is read against `logged`, so it has to
+     mean "a person answered here", not "a record exists". The ghosts are
+     named separately rather than dropped in silence: this number falls the
+     day attestation lands, and the clause is the only thing that explains
+     why. Do not attribute them to any one writer -- three of them make
+     records unasked. */
+  const logged = past.filter(d => attested(DB[d]));
+  const ghost = past.filter(d => DB[d] && !attested(DB[d]));
+  setText("rvCoverage", logged.length + " of " + past.length + " days in the record (" +
+    (past.length ? Math.round(logged.length / past.length * 100) : 0) + "%)" +
+    (ghost.length ? " · " + ghost.length + " more hold synced data only" : ""));
   setText("rvFraming", REVIEW_FRAMING);
 
   /* review date */
@@ -1034,7 +1056,11 @@ function renderReview() {
   const wkKeys = Object.keys(weeks).sort();
   function weeklyRate(pick) {
     let hitN = 0, poss = 0;
-    wkKeys.forEach(w => { if (weeks[w].some(d => DB[d])) { poss++; if (pick(weeks[w])) hitN++; } });
+    /* Same predicate as `logged` above, and it has to move with it: if a
+       week counts as possible on a Garmin-only day, the weekly rows are
+       scored against a wider denominator than the daily rows and the two
+       halves of one table disagree. */
+    wkKeys.forEach(w => { if (weeks[w].some(d => attested(DB[d]))) { poss++; if (pick(weeks[w])) hitN++; } });
     return { hit: hitN, poss: poss, rate: poss ? hitN / poss : 0 };
   }
   const countIn = (ds, t) => ds.reduce((a, d) => {
@@ -1055,7 +1081,7 @@ function renderReview() {
   setText("rvLead", enough ? String(alive) : String(logged.length));
   setText("rvLeadLabel", enough
     ? "of " + rows.length + " tracked items still getting ticked"
-    : "days logged — verdicts start at 14");
+    : "days in the record — verdicts start at 14");
 
   const tri = el("triageRows"); tri.innerHTML = "";
   rows.forEach(r => {
@@ -1086,7 +1112,7 @@ function renderReview() {
   });
   setText("rvTriageSub", enough
     ? "Sorted in fixed order, never re-ranked under you. The accent marks the lowest — that is the park candidate, not a verdict."
-    : "Verdicts are suppressed until 14 days are logged. Median habit formation is 66 days; judging an item at day " +
+    : "Verdicts are suppressed until 14 days are in the record. Median habit formation is 66 days; judging an item at day " +
       logged.length + " would be noise.");
 
   /* wake diagnosis stats */
@@ -1107,7 +1133,7 @@ function renderReview() {
       return r && r.wakeT && t !== null && Math.abs(mins(r.wakeT) - t) <= 30;
     }).length;
     setText("wkBand", wakes.length ? Math.round(inBand / wakes.length * 100) + "%" : "—");
-    const v = el("wkVerdict"); v.className = "verdict";
+    const v = el("wkVerdict");
     const spread = wakes[wakes.length - 1] - wakes[0];
     const tgt = targetFor(past[past.length - 1]);
     const off = tgt === null ? null : med - tgt;
@@ -1126,8 +1152,20 @@ function renderReview() {
       d = "Wake time moves " + (dn ? Math.round(diffs / dn) : spread) +
           " min night to night. Phillips 2017: irregular sleepers with identical total sleep time still had melatonin onset ~2.6h later. Phase, not duration.";
     }
-    v.classList.add(cls);
-    setText("wkvT", t); setText("wkvD", d);
+    /* Gated on the same `enough` as the triage chips. Ungated, a single
+       wake time rendered a v-crit "Variable" citing Phillips 2017 off a
+       spread of nothing, while every other verdict on the page stayed
+       silent below 14 days. The statistics above still show — they are a
+       description. This is a judgement, and it waits. */
+    if (enough) {
+      v.className = "verdict " + cls;
+      setText("wkvT", t); setText("wkvD", d);
+    } else {
+      v.className = "verdict";
+      setText("wkvT", "Not enough days to call it");
+      setText("wkvD", "The figures above are every wake time in this window. The verdict waits for " +
+        "14 days in the record, the same threshold the triage table uses — " + logged.length + " so far.");
+    }
     const durs = past.map(d => sleepMins(DB[d])).filter(x => x !== null).sort((a, b) => a - b);
     setText("wkSleep", durs.length ? (durs[Math.floor(durs.length / 2)] / 60).toFixed(1) + "h" : "—");
   } else {
@@ -1140,7 +1178,7 @@ function renderReview() {
   /* notes */
   const nt = el("noteRows"); nt.innerHTML = "";
   const noted = past.filter(d => DB[d] && DB[d].note).reverse();
-  setText("rvNoteCount", "notes on " + noted.length + " of " + logged.length + " logged days");
+  setText("rvNoteCount", "notes on " + noted.length + " of " + logged.length + " days in the record");
   noted.slice(0, 60).forEach(d => {
     const tr = document.createElement("tr");
     const a = document.createElement("td"); a.textContent = fmtShortDay(d); a.className = "rowh";
@@ -1191,7 +1229,7 @@ function renderTableTwin(days) {
   });
   if (!rows.length) {
     const tr = document.createElement("tr"), td = document.createElement("td");
-    td.colSpan = 18; td.className = "empty"; td.textContent = "Nothing logged in this window.";
+    td.colSpan = 16; td.className = "empty"; td.textContent = "Nothing logged in this window.";
     tr.appendChild(td); tb.appendChild(tr);
   }
 }
@@ -1235,7 +1273,7 @@ function renderSetup() {
   const parkedKeys = Object.keys(PREFS.parked);
   if (!parkedKeys.length) {
     const p = document.createElement("p"); p.className = "note";
-    p.textContent = "Nothing parked. Items become parkable on the Review tab after 28 logged days.";
+    p.textContent = "Nothing parked. Items become parkable on the Review tab after 28 days in the record.";
     un.appendChild(p);
   } else parkedKeys.forEach(k => {
     const row = document.createElement("div"); row.className = "unpark";
@@ -1346,7 +1384,21 @@ async function syncNow(quiet) {
       const g = await gh("/gists/" + gid, null, tok);
       const f = g.files && g.files[GIST_FILE];
       if (f && f.content) {
-        let body = {}; try { body = JSON.parse(f.content) || {}; } catch (e) {}
+        /* A read that failed must never become a write. Swallowing this
+           left body = {}, which emptied REMOTE_EXTRA, and the PATCH below
+           then wrote that emptiness back -- destroying fitnotesSource, the
+           fingerprint fitnotes_sync.py stores and re-reads to stay
+           idempotent. Stop before the PATCH: the gist on disk is still
+           whole, and the next sync recovers it. */
+        let body;
+        try { body = JSON.parse(f.content) || {}; }
+        catch (bad) {
+          setPill("syncPill", "sync stopped", "err");
+          msg("The gist file did not parse (" + bad.message + "). Nothing was written — " +
+              "your local log is untouched and the gist still holds what it held. " +
+              "Open the gist and check it before syncing again.");
+          return;
+        }
         const known = { v: 1, data: 1, prefs: 1, lifts: 1, liftsUpdated: 1 };
         REMOTE_EXTRA = {};
         Object.keys(body).forEach(k => { if (!known[k]) REMOTE_EXTRA[k] = body[k]; });
@@ -1446,10 +1498,14 @@ function boot() {
 
   const gid = lsGet(LS_GIST, ""); if (gid) el("ghGist").value = gid;
   if (lsGet(LS_TOK, "")) { setPill("syncPill", "token saved on this device", "ok"); syncNow(true); }
-  const n = Object.keys(DB).length;
+  /* Counts attested days, not stored ones. "Days in the record" has to name
+     the same quantity here as on Review or the phrase means two numbers. */
+  const keys = Object.keys(DB);
+  const n = keys.filter(d => attested(DB[d])).length, ghosts = keys.length - n;
   const sp = el("savePill");
-  if (n === 0) sp.textContent = "saves automatically";
-  else { sp.textContent = n + " days logged"; sp.className = "pill ok"; }
+  if (!n && !ghosts) sp.textContent = "saves automatically";
+  else if (!n) { sp.textContent = ghosts + " days synced, none answered"; sp.className = "pill ok"; }
+  else { sp.textContent = n + " days in the record"; sp.className = "pill ok"; }
 }
 
 (function () {
