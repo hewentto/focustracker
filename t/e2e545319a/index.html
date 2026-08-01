@@ -288,6 +288,22 @@
     border-left:2px solid var(--border);padding-left:12px;margin-top:0}
   .item.open .whybtn{background:var(--surface-2);color:var(--text-primary)}
 
+  /* The not-applicable control, `train` row only. Full width and 56px tall
+     because it lives inside the disclosure, where nothing competes with it
+     for the thumb -- the inline 32px alternative would have sat in the row's
+     flex line and taken ~44px off the tapzone, which is the one target on
+     this screen that has to stay big. --font-said, not the serif it is
+     nested inside: this is a control, not a citation. State is carried by
+     the WORD in .skipbtn b, never by the border alone. */
+  .skipbtn{display:block;width:100%;min-height:56px;margin-top:12px;
+    text-align:left;padding:10px 14px;font-family:var(--font-said);
+    background:var(--surface-1);border:1px dashed var(--border-strong)}
+  .skipbtn b{display:block;font-size:13.5px;font-weight:700;line-height:1.3}
+  .skipbtn span{display:block;font-size:11.5px;font-weight:400;line-height:1.4;
+    color:var(--text-muted);margin-top:3px}
+  .skipbtn.on{border-style:solid;border-color:var(--text-secondary);
+    background:var(--surface-2)}
+
   /* app.js builds .core-dot into the triage rows, which sit directly under
      the triage chart. That chart marks Core Three with --s1, so this one
      must too -- matching the adjacent chart beats matching the chrome. */
@@ -649,7 +665,17 @@
           <button class="whybtn" onclick="toggleWhy(this)" aria-label="Evidence for training">?</button>
           <div class="evidence">Exercise logging is the only self-monitoring category that survives long-term:
             61% sustained at 11 months vs 21% for diet logging. Missed the run? 3 × 30 s all-out stair climbs
-            counts — that protocol produced +7% VO2peak from ~27 total minutes of work over 6 weeks.</div>
+            counts — that protocol produced +7% VO2peak from ~27 total minutes of work over 6 weeks.
+            <!-- Only this row gets the control. `wake` in particular must never
+                 have it: garmin_sync.py recomputes rec["wake"] for every day
+                 inside DAYS_BACK on every run, so a wake mark would be retired
+                 by the next Action and the user would never see it go. -->
+            <button type="button" class="skipbtn" id="btnSkipTrain" aria-pressed="false"
+                    onclick="toggleSkipTrain()">
+              <b id="btnSkipTrainLab">Mark this day not applicable</b>
+              <span id="btnSkipTrainSub"></span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1106,10 +1132,10 @@
 <!-- ?v= is the cache buster. There is no build step, so bump it in the same
      commit as any change to these files or browsers will keep serving the
      old copy for as long as their heuristic freshness lasts. -->
-<script src="gate.js?v=7"></script>
-<script src="programme.js?v=7"></script>
-<script src="fitnotes.js?v=7"></script>
-<script src="charts.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="gate.js?v=8"></script>
+<script src="programme.js?v=8"></script>
+<script src="fitnotes.js?v=8"></script>
+<script src="charts.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

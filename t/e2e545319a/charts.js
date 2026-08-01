@@ -388,14 +388,11 @@ function drawBehaviourHeat(svg, w, days, db, keys, names, core) {
          Garmin-only record is a day nobody answered: every box on it
          reads false because no one was asked, not because anything was
          missed, and a day with no record at all is not a miss either. */
-      if (!done && d < todayIso && attested(rec)) {
-        const prev = db[addDays(d, -1)];
-        if (prev && !prev[k] && attested(prev)) {
-          svg.appendChild(svgEl("rect", {
-            x: x0 + 0.75, y: yTop + 2.75, width: Math.max(1, cellW - 1.5),
-            height: rowH - gap - 3.5, rx: 3, fill: "none",
-            stroke: "var(--st-critical)", "stroke-width": "1.5" }));
-        }
+      if (missedTwiceAt(db, k, d, todayIso)) {
+        svg.appendChild(svgEl("rect", {
+          x: x0 + 0.75, y: yTop + 2.75, width: Math.max(1, cellW - 1.5),
+          height: rowH - gap - 3.5, rx: 3, fill: "none",
+          stroke: "var(--st-critical)", "stroke-width": "1.5" }));
       }
       if (cw >= 6) {
         hoverable(svg, svgEl("rect", { x: x0 - 2, y: yTop, width: cw + 4, height: rowH }),

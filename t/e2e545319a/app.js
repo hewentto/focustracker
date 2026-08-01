@@ -18,9 +18,13 @@ const NAMES = { wake: "Wake ±30m", light: "Morning light", train: "Trained",
 
 /* Every user-editable day field. Drives dirty-tracking and emptiness.
    `focus` is retired from the UI but stays in the schema: removing it
-   would break every CSV already downloaded and the JS/Python parity. */
+   would break every CSV already downloaded and the JS/Python parity.
+   `skipped` is a STRING, never an object: markDirty() below compares
+   base[f] !== after[f], and on an object that is a reference compare,
+   so an object-shaped field would mark every day permanently dirty. */
 const FIELDS = KEYS.concat(["wakeT", "bedT", "focus", "trainType", "train2",
-                            "runKm", "liftTpl", "social", "protein", "note"]);
+                            "runKm", "liftTpl", "social", "protein", "note",
+                            "skipped"]);
 
 /* Weekly targets (PLAN §2). */
 const T_LIFT = 3, T_RUN = 2, T_SOCIAL = 2, T_PROTEIN = 5;
@@ -117,7 +121,7 @@ function daysBetween(a, b) {
 function blank() {
   return { wake: false, light: false, train: false, caff: false, block: false, log: false,
     wakeT: "", bedT: "", focus: "", trainType: "", train2: "", runKm: "", liftTpl: "",
-    social: false, protein: false, note: "", _u: 0 };
+    social: false, protein: false, note: "", skipped: "", _u: 0 };
 }
 /* Reading a day must never create it. Only save() brings one into being. */
 function rec() { return DB[CUR] || blank(); }
@@ -131,13 +135,78 @@ function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+/* `skipped` is CONTENT, and it goes in the hasVal list below rather than
+   in the KEYS truthy test above. Both halves of that matter. Left out
+   entirely, a day whose only mark is "train not applicable" is empty, and
+   prune() deletes it -- from localStorage and, at the syncNow() call site,
+   from the gist. Put in the truthy test instead, the same day would read
+   as a ticked day and inflate every count on Review. It is neither: it is
+   a day a person answered by saying the question did not apply. */
 function isEmpty(r) {
   if (!r) return true;
   if (KEYS.some(k => r[k]) || r.social || r.protein) return false;
-  return !["wakeT", "bedT", "focus", "trainType", "train2", "runKm", "liftTpl", "note"]
-    .some(f => hasVal(r[f]));
+  return !["wakeT", "bedT", "focus", "trainType", "train2", "runKm", "liftTpl", "note",
+           "skipped"].some(f => hasVal(r[f]));
 }
+/* MIGRATION HAZARD -- read before shipping any further day field.
+   isEmpty() above is a hardcoded field list, and this runs at three sites:
+   loadLocal(), the import path, and inside syncNow() IMMEDIATELY BEFORE
+   the PATCH. So a tab still running an older copy of this file deletes any
+   day whose only content is a field that copy does not know -- and then
+   writes that deletion to the gist, where every device picks it up. A day
+   marked "train not applicable" and nothing else is exactly that day, and
+   it is the most likely first use of the control.
+   Nothing in this file can fix a copy of this file that is already loaded.
+   The only defence is operational: bump ?v= in index.html (done: v8) AND
+   hard-reload every device before using the control for the first time. A
+   phone tab left open in the background will keep pruning on a 4s debounce
+   for as long as it lives. */
 function prune(db) { Object.keys(db).forEach(d => { if (isEmpty(db[d])) delete db[d]; }); return db; }
+
+/* ---------- not applicable ----------
+   `skipped` is a space-joined list of behaviour keys in KEYS order, e.g.
+   "train". Three properties of that wire format are load-bearing:
+
+   1. A STRING, not an object or array -- see FIELDS above.
+   2. SPACE-joined, not comma-joined. A comma would force quoting, and
+      quoting is implemented twice (csvEsc here, csv_escape in
+      garmin_sync.py) on one file both languages write; the two would then
+      have to agree byte for byte on an edge case neither is tested on.
+      A behaviour key can never contain a space, so this can never quote.
+   3. A key is not-applicable only if it is LISTED AND its boolean is
+      false. The boolean stays the only thing that decides "done", which
+      is what keeps both Python jobs skip-blind: int(bool(...)) in
+      to_csv() is never handed a truthy sentinel, and Garmin ticking
+      train on a day you had marked a rest day simply wins, silently and
+      correctly -- you trained, so it was not a rest day.
+
+   SKIP_KEY is `train` alone, and that is a correctness limit rather than
+   caution. garmin_sync.py recomputes rec["wake"] unconditionally for
+   every day inside DAYS_BACK (`rec["wake"] = delta <= 30`, garmin_sync.py
+   :439), so a wake-skip would be silently retired by the next Action run
+   and the user would have no way to see it happen. light, caff, block and
+   log have no such writer, but they are also not what rest days poison:
+   the whole case for this feature is the `train` denominator on a
+   programme that prescribes rest. One row, one reason.
+
+   READS honour any key found in the list, including one this build offers
+   no control for. The format is defined for all six, and silently ignoring
+   a mark another client wrote would be worse than respecting it -- so this
+   constant gates the CONTROL, never the readers. */
+const SKIP_KEY = "train";
+function skipList(r) {
+  return r && r.skipped ? String(r.skipped).split(" ").filter(Boolean) : [];
+}
+function isSkip(r, k) { return !!r && !r[k] && skipList(r).indexOf(k) >= 0; }
+function setSkip(r, k, on) {
+  const has = {};
+  skipList(r).forEach(x => has[x] = 1);
+  if (on) has[k] = 1; else delete has[k];
+  /* Rebuilt from KEYS rather than appended to, so the stored order is
+     canonical and toggling twice returns the exact original string --
+     otherwise markDirty() would see a change that is not one. */
+  r.skipped = KEYS.filter(x => has[x]).join(" ");
+}
 
 /* A record existing is not evidence a human was there. Three writers make
    day records with nobody in the room: garmin_sync.py, fitnotes_sync.py,
@@ -149,12 +218,52 @@ function prune(db) { Object.keys(db).forEach(d => { if (isEmpty(db[d])) delete d
    denominator for light, caff, block and log, which no machine can write:
    the triage table would then judge you on days you never saw, deflating
    exactly the four items it exists to judge.
-   `skipped` is listed although the field does not exist yet -- marking a day
-   not-applicable is a human act, and hasVal() on an absent key is false, so
-   naming it here costs nothing until Phase 6 ships the control. */
+   `skipped` attests on its own: marking a day not-applicable is a human act
+   and no machine writer can do it. hasVal("") is false, so a record that
+   merely carries the field without a mark still counts as unanswered. */
 function attested(r) {
   return !!r && (["light", "caff", "block", "log"].some(k => r[k]) || r.social || r.protein ||
                  ["note", "liftTpl", "focus", "skipped"].some(f => hasVal(r[f])));
+}
+
+/* ---------- misses ----------
+   A miss is a day that was answered, was an opportunity, and was not
+   ticked. Three states are NOT misses, each for a different reason:
+     no record   -- nobody was there at all;
+     unattested  -- a machine wrote it, every box reads false because no
+                    one was asked, not because anything was missed;
+     skipped     -- a person answered by saying the question did not apply.
+   `r` may be undefined; attested() short-circuits before r[k] is read. */
+function isMiss(r, k) { return attested(r) && !r[k] && !isSkip(r, k); }
+
+/* TWO missed-twice predicates, and they must not be collapsed into one.
+   They ask different questions about different days.
+
+   missedTwiceBefore() is Today's callout: the two opportunities STRICTLY
+   BEFORE today. Today is excluded because a box not yet ticked at 9am on
+   a day still running is not a miss, and flagging it manufactures a
+   failure out of a day in progress.
+
+   missedTwiceAt() is the heat cell: THIS day and the one before it,
+   evaluated for every past day in the window. Shifted by one on purpose
+   -- a shared "the two days before d" helper would move every outline on
+   the grid one column right, marking the day AFTER the second miss.
+
+   Neither reaches past a day that is not a miss to find an older one. A
+   skipped or unanswered day breaks the pair, exactly as it already did
+   before skips existed: reaching back would let the flag fire on two
+   misses a fortnight apart and call them "two days running".
+
+   drawBehaviourHeat() in charts.js calls missedTwiceAt directly rather
+   than carrying its own copy. It briefly did carry one, and the copy went
+   skip-blind the moment skips existed: a day marked not-applicable still
+   drew the outline. One definition, two callers, and the shift between
+   them stated here rather than rediscovered in the renderer. */
+function missedTwiceBefore(db, k, todayIso) {
+  return isMiss(db[addDays(todayIso, -1)], k) && isMiss(db[addDays(todayIso, -2)], k);
+}
+function missedTwiceAt(db, k, d, todayIso) {
+  return d < todayIso && isMiss(db[d], k) && isMiss(db[addDays(d, -1)], k);
 }
 
 /* ---------- source freshness ----------
@@ -578,6 +687,9 @@ function loadDay() {
   el("fSocial").checked = !!t.social;
   el("fProtein").checked = !!t.protein;
   el("fNote").value = t.note || "";
+  /* `skipped` is deliberately not read here. Its control is a button, not
+     a form field, and renderSkipTrain() runs from renderToday() -- which
+     fires everywhere this does and also after the button writes. */
 }
 
 /* ---------- caffeine ---------- */
@@ -809,16 +921,14 @@ function renderToday() {
   const km = r && hasVal(r.runKm) ? +r.runKm : NaN;
   setText("mTrain", isFinite(km) && km > 0 ? km.toFixed(1) + " km"
                   : sess.length ? sess.join(" + ") : "");
+  renderSkipTrain(r);
 
   /* Missed twice: never on a day still in progress. Flagging "Trained"
      at 9am on a day you have not finished is manufacturing a failure.
-     Both days must also be attested. A Garmin-only record is a day nobody
-     answered, and "you missed it twice" is a claim about answers -- on a
-     synced-but-unanswered day every box reads false because no one was
-     asked, not because anything was missed. */
-  const yest = addDays(todayIso, -1), yest2 = addDays(todayIso, -2);
-  const liveFlags = KEYS.filter(k => !isParked(k) &&
-    attested(DB[yest]) && attested(DB[yest2]) && !DB[yest][k] && !DB[yest2][k]).map(k => NAMES[k]);
+     Both days must also be attested, and neither may be skipped -- see
+     isMiss() and the two predicates beside it. */
+  const liveFlags = KEYS.filter(k => !isParked(k) && missedTwiceBefore(DB, k, todayIso))
+    .map(k => NAMES[k]);
   /* One callout at a time, and the storage one always wins. Both sit in the
      same slot above the taps; stacked they compete, and a warning that
      yesterday's tick is missing is worth nothing next to the news that
@@ -901,6 +1011,67 @@ function renderToday() {
      looking at an empty wake time above and wondering whether the watch
      or the job is the thing that stopped. */
   renderSources();
+}
+
+/* ---------- the not-applicable control ----------
+   It lives inside the `train` row's existing .evidence disclosure, as a
+   full-width 56px button. Not an inline control beside the ? -- that
+   variant is 32px, sits inside the row's flex line and takes ~44px off
+   the `flex:1` tapzone, which is the one thing on this screen that has
+   to stay thumb-sized. Inside the disclosure it costs the tapzone
+   nothing and needs no fold gate of its own.
+
+   A real <button>, so it is tab-reachable, Enter/Space-operable and
+   announced with a state, by construction. A long-press on the row would
+   have been none of those things.
+
+   Refreshed from renderToday() rather than loadDay(): loadDay() only runs
+   on a day change and on boot, while render() runs on both of those AND
+   immediately after this button writes, so the label would otherwise lag
+   its own click by one interaction. */
+function renderSkipTrain(r) {
+  const b = el("btnSkipTrain");
+  if (!b) return;
+  /* The control asks whether the mark is PRESENT; every reader downstream
+     asks whether it is IN EFFECT, which is isSkip() -- listed AND the
+     boolean false. Keying the button off isSkip() instead would strand a
+     mark on a day you later ticked: the button would read "mark" while the
+     record already said "train", and pressing it would rewrite the same
+     value forever with no way to clear it. */
+  const on = skipList(r).indexOf(SKIP_KEY) >= 0, ticked = !!(r && r[SKIP_KEY]);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.classList.toggle("on", on);
+  setText("btnSkipTrainLab", on ? "Not applicable — undo" : "Mark this day not applicable");
+  /* Four states, and each says what is actually true rather than what
+     would be tidy. The two `ticked` lines exist because a tick always
+     wins over a mark: "listed AND false" is the rule the whole feature
+     rests on, so a day you trained is a day you trained. Saying so beats
+     hiding or disabling the button, which would strand the mark on a day
+     you could no longer un-mark. */
+  setText("btnSkipTrainSub",
+    ticked
+      ? (on ? "Trained is ticked, so this day counts as done. The mark does nothing until you untick it."
+            : "Trained is ticked for this day. A tick always wins, so this would do nothing until you untick it.")
+      : (on ? "This day is out of the Trained denominator. It cannot count as a miss and cannot break a run."
+            : "A planned rest day: not done, and not counted against you. It leaves the Trained denominator instead of sitting in it as a miss."));
+}
+/* Writes the record directly rather than going through save(): save()
+   reads the six checkboxes and the form fields, and this is neither. The
+   boolean is deliberately untouched -- a skip is a claim about the day,
+   not a tick, and every reader downstream of here stays skip-blind
+   because of that. */
+function toggleSkipTrain() {
+  const day = CUR, before = DB[day] ? Object.assign({}, DB[day]) : null;
+  const t = recW();
+  /* Presence, not effect -- see renderSkipTrain(). */
+  setSkip(t, SKIP_KEY, skipList(t).indexOf(SKIP_KEY) < 0);
+  t._u = Date.now();
+  markDirty(day, before, t);
+  /* Mirrors save(). With `skipped` in isEmpty()'s field list a day whose
+     only content is the mark survives; un-marking the last thing on a day
+     correctly removes it again. */
+  if (isEmpty(t)) delete DB[day];
+  persist(); render(); queueSync();
 }
 
 function meter(id, label, val, target) {
@@ -1220,7 +1391,7 @@ const BREAK_PATTERN_DAYS = 12;
    first would let a long silence outrank a longer measured absence,
    which is the ghost days voting on a question they were never asked. */
 function longestBreak(k, scope) {
-  let best = null, run = [];
+  let best = null, run = [], firstOpp = "";
   function close() {
     if (!run.length) return;
     const cand = { n: run.length, from: run[0], to: run[run.length - 1],
@@ -1228,7 +1399,16 @@ function longestBreak(k, scope) {
     if (!best || cand.n > best.n || (cand.n === best.n && cand.span > best.span)) best = cand;
     run = [];
   }
-  scope.forEach(d => { if (DB[d][k]) close(); else run.push(d); });
+  scope.forEach(d => {
+    /* A skipped day is TRANSPARENT for the same reason a ghost day is:
+       neither a hit nor a miss, so it can neither break a run nor extend
+       one. It stays inside `span` when a run closes over it, exactly as a
+       ghost does -- the calendar stretch either side of it is still real,
+       and `n` is still what was actually measured. */
+    if (isSkip(DB[d], k)) return;
+    if (!firstOpp) firstOpp = d;
+    if (DB[d][k]) close(); else run.push(d);
+  });
   close();
   /* Censored left: when the oldest attested day in scope is itself a
      miss, the run holding it began before the window and there is no way
@@ -1236,8 +1416,10 @@ function longestBreak(k, scope) {
      an interior run that happens to be the longest visible one, because
      the invisible leading run could be longer than all of them. Flagging
      only a run starting at index 0 would print a bare 5 over a break that
-     might be fifty. */
-  const censored = scope.length > 0 && !DB[scope[0]][k];
+     might be fifty.
+     Measured from the oldest OPPORTUNITY, not scope[0]: a skipped day at
+     the window edge is not a miss, so it cannot censor anything. */
+  const censored = !!firstOpp && !DB[firstOpp][k];
   return best ? { n: best.n, span: best.span, from: best.from, to: best.to, censored: censored }
               : { n: 0, span: 0, from: "", to: "", censored: false };
 }
@@ -1276,7 +1458,11 @@ function breakDetail(b, ref) {
    measured against a day still in progress. */
 function sinceMissLabel(k, scope, todayIso) {
   for (let i = scope.length - 1; i >= 0; i--) {
-    if (!DB[scope[i]][k]) {
+    /* isMiss(), not !DB[d][k], or a rest day would restart this clock as
+       if it were a failure -- the one thing the mark exists to prevent.
+       Every day in `scope` is already attested, so the only clause this
+       adds over the old test is the skip. */
+    if (isMiss(DB[scope[i]], k)) {
       const n = daysBetween(scope[i], todayIso);
       return n === 1 ? "1 day since a miss" : n + " days since a miss";
     }
@@ -1411,7 +1597,14 @@ function renderReview() {
   const rows = [];
   KEYS.forEach(k => {
     if (isParked(k)) return;
-    const poss = logged.length, hitN = logged.filter(d => DB[d][k]).length;
+    /* A day marked not-applicable leaves the denominator rather than
+       sitting in it as a miss. It is not a hit either -- adding it to both
+       halves would let a fortnight of rest days read as perfect adherence,
+       which is the opposite failure and the louder one. So: dropped. This
+       is the whole point of the feature; every other effect follows from
+       it. Rows with no skips are unaffected, `skipped` being "" there. */
+    const opp = logged.filter(d => !isSkip(DB[d], k));
+    const poss = opp.length, hitN = opp.filter(d => DB[d][k]).length;
     rows.push({ key: k, name: NAMES[k], core: CORE3.indexOf(k) >= 0,
       hit: hitN, poss: poss, rate: poss ? hitN / poss : 0,
       since: breaksOn ? sinceMissLabel(k, breakScope, todayIso) : "" });
@@ -1686,14 +1879,23 @@ function toCSV() {
   const hdr = ["date", "wake_within_30m", "morning_light", "trained", "caffeine_plan",
     "both_blocks", "logged", "core3_all", "training_type", "wake_time", "bed_time",
     "sleep_hours", "longest_block_min", "social_contact", "protein_target", "note",
-    "training_type_2", "run_km", "lift_template"];
+    "training_type_2", "run_km", "lift_template", "not_applicable"];
   const rows = Object.keys(DB).sort().map(d => {
     const r = DB[d] || {}, sm = sleepMins(r);
+    /* Slot 20, appended, never inserted. `core3_all` keeps its old meaning
+       -- all three literally ticked -- so a skipped `train` day exports
+       trained=0 and core3_all=0 while the same day sits outside the
+       Trained denominator on Review. The archive records what happened;
+       the screen records what it was fair to ask. They are allowed to
+       differ, and `not_applicable` is the column that explains why.
+       `r.skipped || ""` because every record written before this build
+       lacks the field entirely. */
     return [d, r.wake ? 1 : 0, r.light ? 1 : 0, r.train ? 1 : 0, r.caff ? 1 : 0,
       r.block ? 1 : 0, r.log ? 1 : 0, CORE3.every(k => r[k]) ? 1 : 0, r.trainType || "",
       r.wakeT || "", r.bedT || "", sm === null ? "" : (sm / 60).toFixed(2), r.focus || "",
       r.social ? 1 : 0, r.protein ? 1 : 0, r.note || "",
-      r.train2 || "", r.runKm || "", r.liftTpl || ""].map(csvEsc).join(",");
+      r.train2 || "", r.runKm || "", r.liftTpl || "",
+      r.skipped || ""].map(csvEsc).join(",");
   });
   return hdr.join(",") + "\n" + rows.join("\n") + "\n";
 }

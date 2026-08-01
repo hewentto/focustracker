@@ -43,6 +43,14 @@ CSV_HEADER = [
     "bed_time", "sleep_hours", "longest_block_min",
     "social_contact", "protein_target", "note",
     "training_type_2", "run_km", "lift_template",
+    # Slot 20: the browser's `skipped` field, a SPACE-joined list of
+    # behaviour keys the user marked not-applicable for that day. Space
+    # rather than comma so it can never trigger csv_escape() -- quoting is
+    # implemented twice, here and as csvEsc() in app.js, on one file both
+    # languages write. Nothing in this script reads or writes the field:
+    # it passes through from the document to the row untouched, and
+    # `core3_all` above keeps meaning "all three literally ticked".
+    "not_applicable",
 ]
 
 # Garmin activityType.typeKey -> our session type. This is a STRICT whitelist:
@@ -83,11 +91,17 @@ def log(msg):
 
 
 def blank_day():
+    # One of four hand-copies of the day schema (the others: blank() in
+    # app.js, the inline literal in fitnotes_sync.apply_to_body(), and the
+    # CSV row builders). `skipped` is "" here rather than absent so a
+    # record this script creates round-trips through the browser's
+    # isEmpty() the same way one the browser created does.
     return {
         "wake": False, "light": False, "train": False, "caff": False,
         "block": False, "log": False, "wakeT": "", "bedT": "", "focus": "",
         "trainType": "", "train2": "", "runKm": "", "liftTpl": "",
-        "social": False, "protein": False, "note": "", "_u": 0,
+        "social": False, "protein": False, "note": "", "skipped": "",
+        "_u": 0,
     }
 
 
@@ -162,6 +176,15 @@ def to_csv(db):
             int(bool(r.get("social"))), int(bool(r.get("protein"))),
             r.get("note", ""),
             r.get("train2", ""), r.get("runKm", ""), r.get("liftTpl", ""),
+            # Slot 20. Copied through verbatim, never parsed: this script
+            # must stay skip-blind, and the int(bool(...)) columns above
+            # are why. A key is not-applicable only if it is listed here
+            # AND its boolean is false, so the booleans keep their whole
+            # value domain and nothing above is ever handed a sentinel.
+            # .get() with a default because every record written before
+            # the field existed, and every record this script has not
+            # touched since, lacks it.
+            r.get("skipped", ""),
         ]))
     return ",".join(CSV_HEADER) + "\n" + "\n".join(rows) + "\n"
 

@@ -219,11 +219,20 @@ def apply_to_body(body, parsed, stamp_ms):
             continue
         rec = data.get(iso)
         if not isinstance(rec, dict):
+            # The fourth hand-copy of the day schema, and the one a grep
+            # for blank_day() never surfaces. It has to carry every field
+            # the other three do -- including "skipped", the browser's
+            # not-applicable marks.
             rec = {"wake": False, "light": False, "train": False, "caff": False,
                    "block": False, "log": False, "wakeT": "", "bedT": "", "focus": "",
                    "trainType": "", "train2": "", "runKm": "", "liftTpl": "",
-                   "social": False, "protein": False, "note": "", "_u": 0}
+                   "social": False, "protein": False, "note": "", "skipped": "",
+                   "_u": 0}
         before = dict(rec)
+        # Nothing here reads or clears "skipped". It does not need to: a
+        # mark only means not-applicable while its boolean is false, so
+        # ticking train on a day you had marked a rest day retires the
+        # mark by itself -- you trained, so it was not a rest day.
         rec["train"] = True
         # Never displace what Garmin recorded: a day that already holds a run
         # gains the lift as its second session.
